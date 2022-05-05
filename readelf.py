@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser
-from dataclasses import dataclass, fields
+import dataclasses
 from enum import Enum
 from pathlib import Path
+from typing import Any, ClassVar
 
 
 class Arguments:
@@ -326,21 +327,44 @@ class ElfMachineType(Enum):
     EM_56800EF = 262  # NXP 56800EF Digital Signal Controller (DSC)
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class ElfHeader:
-    magic: str
-    elfClass: ElfClass
-    endiannes: Endianness
-    version: int
-    osabi: ElfOsAbi
-    abiversion: int
-    # pad: int
-    objectType: ElfType
-    machine: ElfMachineType
-    version2: int
+    ADDRESS: ClassVar[str] = 'address'
+    HIDDEN: ClassVar[str] = 'hidden'
+    SIZE: ClassVar[str] = 'size'
+
+    magic: str = dataclasses.field(metadata={SIZE: 4})  # offset = 0
+    elfClass: ElfClass  # offset = 4
+    endiannes: Endianness  # offset = 5
+    version: int  # offset = 6
+    osabi: ElfOsAbi  # offset = 7
+    abiversion: int  # offset = 8
+    _pad1: bytes = dataclasses.field(metadata={SIZE: 7, HIDDEN: True})  # offset = 9
+    objectType: ElfType = dataclasses.field(metadata={SIZE: 2})  # offset = 0x10
+    machine: ElfMachineType = dataclasses.field(metadata={SIZE: 2})  # offset = 0x12
+    version2: int = dataclasses.field(metadata={SIZE: 4})  # offset = 0x14
+    entry: int = dataclasses.field(metadata={SIZE: ADDRESS})
+    program_header_offset: int = dataclasses.field(metadata={SIZE: ADDRESS})
+    section_header_offset: int = dataclasses.field(metadata={SIZE: ADDRESS})
+    flags: int = dataclasses.field(metadata={SIZE: 4})
+    elf_header_size: int = dataclasses.field(metadata={SIZE: 2})  # Size of this header.
+    program_header_size: int = dataclasses.field(metadata={SIZE: 2})
+    program_header_entries: int = dataclasses.field(metadata={SIZE: 2})
+    section_header_size: int = dataclasses.field(metadata={SIZE: 2})
+    section_header_entries: int = dataclasses.field(metadata={SIZE: 2})
+    section_header_names_index: int = dataclasses.field(metadata={SIZE: 2})
+
+    def print(self) -> None:
+        for field in dataclasses.fields(ElfHeader):
+            if field.metadata.get(ElfHeader.HIDDEN, False):
+                continue
+            value = getattr(self, field.name)
+            if field.metadata.get(ElfHeader.SIZE, 1) == ElfHeader.ADDRESS:
+                value = hex(value)
+            print(field.name, value, sep=': ')
 
 
-def to_int(*b: int) -> int:
+def to_int(b: bytes) -> int:
     result = 0
     shift = 0
     for byte in b:
@@ -351,18 +375,31 @@ def to_int(*b: int) -> int:
 
 def parse_elf_header(elf_header: bytes) -> ElfHeader:
     assert len(elf_header) >= 52
-    return ElfHeader(
-        magic=f'{elf_header[0]:02x} {elf_header[1]:02x} {elf_header[2]:02x} {elf_header[3]:02x}',
-        elfClass=ElfClass(elf_header[4]),
-        endiannes=Endianness(elf_header[5]),
-        version=int(elf_header[6]),
-        osabi=ElfOsAbi(elf_header[7]),
-        abiversion=int(elf_header[8]),
-        # pad=elf_header[9],  # ignore
-        objectType=ElfType(to_int(*elf_header[0x10:0x12])),
-        machine=ElfMachineType(to_int(*elf_header[0x12:0x14])),
-        version2=elf_header[0x14],
-    )
+
+    kwargs: dict[str, Any] = {}
+    start = 0
+    pointer_size = 4  # Will be changed to 8 after reading ELF class.
+    for field in dataclasses.fields(ElfHeader):
+        size = field.metadata.get(ElfHeader.SIZE, 1)
+        # Handle 'address' types.
+        if size == ElfHeader.ADDRESS:
+            size = pointer_size
+        end = start + size
+        if issubclass(field.type, (str, bytes)):
+            kwargs[field.name] = bytes.hex(elf_header[start:end])
+        elif issubclass(field.type, bytes):
+            kwargs[field.name] = elf_header[start:end]
+        else:
+            # Integer type
+            data = to_int(elf_header[start:end])
+            kwargs[field.name] = field.type(data)
+        start += size
+
+        # Update pointer size for 64bit targets.
+        if field.name == 'elfClass' and kwargs[field.name] == ElfClass.ELF64:
+            pointer_size = 8
+
+    return ElfHeader(**kwargs)
 
 
 if __name__ == "__main__":
@@ -371,5 +408,4 @@ if __name__ == "__main__":
     with open(args.input, 'rb') as elf_file:
         elf_header_bytes = elf_file.read(64)
     elf_header = parse_elf_header(elf_header_bytes)
-    for field in fields(ElfHeader):
-        print(field.name, getattr(elf_header, field.name), sep=': ')
+    elf_header.print()
