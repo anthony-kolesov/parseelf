@@ -334,7 +334,7 @@ class ElfHeader:
     SIZE: ClassVar[str] = 'size'
 
     magic: str = dataclasses.field(metadata={SIZE: 4})  # offset = 0
-    elfClass: ElfClass  # offset = 4
+    elf_class: ElfClass  # offset = 4
     endiannes: Endianness  # offset = 5
     version: int  # offset = 6
     osabi: ElfOsAbi  # offset = 7
@@ -361,7 +361,27 @@ class ElfHeader:
             value = getattr(self, field.name)
             if field.metadata.get(ElfHeader.SIZE, 1) == ElfHeader.ADDRESS:
                 value = hex(value)
+            elif isinstance(value, Enum):
+                value = value.name
             print(field.name, value, sep=': ')
+
+    @staticmethod
+    def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:
+        size = field.metadata.get(ElfHeader.SIZE, 1)
+        # Handle 'address' types.
+        if size == ElfHeader.ADDRESS:
+            return (4 if elf_class == ElfClass.ELF32 else 8)
+        return int(size)
+
+    @staticmethod
+    def fetch_field_value(field: dataclasses.Field, stream: bytes) -> Any:
+        if issubclass(field.type, (str, bytes)):
+            return bytes.hex(stream)
+        elif issubclass(field.type, bytes):
+            return stream
+        else:
+            # Integer type
+            return field.type(to_int(stream))
 
 
 def to_int(b: bytes) -> int:
@@ -378,26 +398,18 @@ def parse_elf_header(elf_header: bytes) -> ElfHeader:
 
     kwargs: dict[str, Any] = {}
     start = 0
-    pointer_size = 4  # Will be changed to 8 after reading ELF class.
+    # Need to know the ELF class to parse address-type fields. The ELF Class field itself has fixed size, so it doesn't
+    # matter with what value this variable it is initially initialized - it will be set correctly by the time we get to
+    # the first variable sized field.
+    elf_class: ElfClass = ElfClass.ELF32
     for field in dataclasses.fields(ElfHeader):
-        size = field.metadata.get(ElfHeader.SIZE, 1)
-        # Handle 'address' types.
-        if size == ElfHeader.ADDRESS:
-            size = pointer_size
-        end = start + size
-        if issubclass(field.type, (str, bytes)):
-            kwargs[field.name] = bytes.hex(elf_header[start:end])
-        elif issubclass(field.type, bytes):
-            kwargs[field.name] = elf_header[start:end]
-        else:
-            # Integer type
-            data = to_int(elf_header[start:end])
-            kwargs[field.name] = field.type(data)
-        start += size
+        end = start + ElfHeader.field_size(field, elf_class)
+        kwargs[field.name] = ElfHeader.fetch_field_value(field, elf_header[start:end])
+        start = end
 
         # Update pointer size for 64bit targets.
-        if field.name == 'elfClass' and kwargs[field.name] == ElfClass.ELF64:
-            pointer_size = 8
+        if field.name == 'elf_class':
+            elf_class = kwargs[field.name]
 
     return ElfHeader(**kwargs)
 
