@@ -420,9 +420,33 @@ class ProgramHeaderType(Enum):
         return _missing_enum_value(cls, value)
 
 
-# Program headers for 32 and 64 bit ELFs have different order of fields.
+# Program header has different layout (i.e. order of fields) for 32 and 64 bit
+# classes. But our code depends on the order of fields as they are declared in
+# the dataclass - it is assumed that order is the same in the dataclass and in
+# the layout in file. So we can't use single class to describe both layouts.
+# But having two classes is cumbersome as type declarations becomes cumbersome,
+# since classes are assumed to have different interfaces, yet from the
+# programming POV they are identical. Thus to simplify interfaces I declare a
+# base class with all of the same fields. Note that this class itself mustn't
+# be a dataclass, or inheriting classes would also inherit its order of fields.
+# Alternative would be to store offset in the field metadata, however it would
+# still require us storing some kind of a function in the metadata, since
+# result would depend on the ELF class value. Another alternative would be to
+# not use dataclasses, but I suspect that this would create even more code
+# duplication than the current approach, where program header is define thrice.
+class ProgramHeader:
+    type: ProgramHeaderType
+    flags: int
+    offset: int
+    vaddr: int
+    paddr: int
+    filesz: int
+    memsz: int
+    align: int
+
+
 @dataclasses.dataclass(frozen=True)
-class ProgramHeader32:
+class ProgramHeader32(ProgramHeader):
     type: ProgramHeaderType = dataclasses.field(metadata=header.meta(size=4))
     offset: int = dataclasses.field(metadata=header.meta(address=True))
     vaddr: int = dataclasses.field(metadata=header.meta(address=True))
@@ -434,7 +458,7 @@ class ProgramHeader32:
 
 
 @dataclasses.dataclass(frozen=True)
-class ProgramHeader64:
+class ProgramHeader64(ProgramHeader):
     type: ProgramHeaderType = dataclasses.field(metadata=header.meta(size=4))
     flags: int = dataclasses.field(metadata=header.meta(size=4))
     offset: int = dataclasses.field(metadata=header.meta(address=True))
@@ -447,3 +471,25 @@ class ProgramHeader64:
 
 def get_program_header_type(elf_class: ElfClass) -> Type[ProgramHeader32] | Type[ProgramHeader64]:
     return ProgramHeader64 if elf_class == ElfClass.ELF64 else ProgramHeader32
+
+
+def read_program_headers(
+    stream: BinaryIO,
+    elf_header: ElfHeader,
+) -> list[ProgramHeader]:
+    """Read program headers from the stream and parse them.
+
+    State of stream cursor can change during the function execution."""
+    pheader_class = get_program_header_type(elf_header.elf_class)
+    pheader_count = elf_header.program_header_entries
+    pheader_size = elf_header.program_header_size
+
+    stream.seek(elf_header.program_header_offset)
+    data = stream.read(pheader_size * pheader_count)
+    headers: list[ProgramHeader] = []
+    for cnt in range(pheader_count):
+        start = pheader_size * cnt
+        end = start + pheader_size
+        pheader_entry = header.parse_header(data[start:end], pheader_class, elf_header.elf_class)
+        headers.append(pheader_entry)
+    return headers
