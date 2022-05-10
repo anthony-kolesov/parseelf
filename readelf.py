@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import header
+from header import ElfClass
 
 
 class Arguments:
@@ -22,11 +23,6 @@ def create_parser() -> ArgumentParser:
         help='input file path',
     )
     return parser
-
-
-class ElfClass(Enum):
-    ELF32 = 1
-    ELF64 = 2
 
 
 class Endianness(Enum):
@@ -339,13 +335,6 @@ class header_cls:
     SIZE: ClassVar[str] = 'size'
 
     @staticmethod
-    def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:
-        # Handle 'address' types.
-        if field.metadata.get(header.ADDRESS, False):
-            return (4 if elf_class == ElfClass.ELF32 else 8)
-        return int(field.metadata.get(ElfHeader.SIZE, 1))
-
-    @staticmethod
     def parse_field_value(field: dataclasses.Field, stream: bytes) -> Any:
         """Parse a field value from a byte stream."""
         if issubclass(field.type, (str, bytes)):
@@ -500,7 +489,7 @@ def parse_header(header_bytes: bytes, header_type: type, elf_class: ElfClass) ->
     kwargs: dict[str, Any] = {}
     start = 0
     for field in dataclasses.fields(header_type):
-        end = start + header_cls.field_size(field, elf_class)
+        end = start + header.field_size(field, elf_class)
         kwargs[field.name] = header_cls.parse_field_value(field, header_bytes[start:end])
         start = end
 
