@@ -495,19 +495,6 @@ def to_int(b: bytes) -> int:
     return result
 
 
-def parse_elf_header(elf_header: bytes, elf_class: ElfClass) -> ElfHeader:
-    assert len(elf_header) >= 52
-
-    kwargs: dict[str, Any] = {}
-    start = 0
-    for field in dataclasses.fields(ElfHeader):
-        end = start + header.field_size(field, elf_class)
-        kwargs[field.name] = header.parse_field_value(field, elf_header[start:end])
-        start = end
-
-    return ElfHeader(**kwargs)
-
-
 def parse_header(header_bytes: bytes, header_type: type, elf_class: ElfClass) -> Any:
     kwargs: dict[str, Any] = {}
     start = 0
@@ -526,7 +513,7 @@ if __name__ == "__main__":
     elf_header_bytes = elf_file.read(64)
     # ELF class is a special case neede to properly parse address fields.
     elf_class = ElfHeader.get_elf_class(elf_header_bytes)
-    elf_header = parse_elf_header(elf_header_bytes, elf_class)
+    elf_header = parse_header(elf_header_bytes, ElfHeader, elf_class)
     print("# ELF header")
     header.print_single(elf_header)
 
