@@ -1,10 +1,6 @@
 """Helper module to deal with data classes representing ELF headers."""
 
 __all__ = [
-    # Constants.
-    'ADDRESS',
-    'HIDDEN',
-    'SIZE',
     # Classes.
     'ElfClass',
     # Functions.
@@ -20,11 +16,9 @@ import dataclasses
 from enum import Enum
 from typing import Any, TextIO, Type, TypeVar
 
-ADDRESS = 'address'
-HIDDEN = 'hidden'
-SIZE = 'size'
-
-
+_ADDRESS = 'address'
+_HIDDEN = 'hidden'
+_SIZE = 'size'
 _T = TypeVar('_T')
 
 
@@ -35,14 +29,14 @@ class ElfClass(Enum):
 
 def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:
     """Evaluate size of the field."""
-    if field.metadata.get(ADDRESS, False):
+    if field.metadata.get(_ADDRESS, False):
         return (4 if elf_class == ElfClass.ELF32 else 8)
-    return field.metadata.get(SIZE, 1)
+    return field.metadata.get(_SIZE, 1)
 
 
 def format_value(field: dataclasses.Field, value: Any) -> str:
     """Format field value to a string."""
-    if field.metadata.get(ADDRESS, False):
+    if field.metadata.get(_ADDRESS, False):
         return hex(value)
     elif isinstance(value, Enum):
         return value.name
@@ -52,7 +46,7 @@ def format_value(field: dataclasses.Field, value: Any) -> str:
 def format_header_as_list(obj: Any, output: TextIO) -> None:
     """Print a single dataclass object, one line per field."""
     for field in dataclasses.fields(obj):
-        if field.metadata.get(HIDDEN, False):
+        if field.metadata.get(_HIDDEN, False):
             continue
         value = getattr(obj, field.name)
         print(field.name, format_value(field, value), sep=': ', file=output)
@@ -62,7 +56,7 @@ def format_headers_as_table(objects: list, output: TextIO) -> None:
     """Print a table of multiple dataclass objects, one line per object."""
     if not objects:
         return
-    fields = [f for f in dataclasses.fields(objects[0]) if not f.metadata.get(HIDDEN, False)]
+    fields = [f for f in dataclasses.fields(objects[0]) if not f.metadata.get(_HIDDEN, False)]
     # Print table header.
     print(*(f'{field.name:>10}' for field in fields), sep=' ', file=output)
     # Print rows.
@@ -78,9 +72,9 @@ def meta(*, size=1, address=False, hidden=False) -> dict[str, Any]:
     Note that if `address` is set to true, then value of `size` is
     meaningless."""
     return {
-        HIDDEN: hidden,
-        ADDRESS: address,
-        SIZE: size,
+        _HIDDEN: hidden,
+        _ADDRESS: address,
+        _SIZE: size,
     }
 
 
