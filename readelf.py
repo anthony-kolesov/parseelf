@@ -5,7 +5,8 @@ import dataclasses
 from enum import Enum
 from io import SEEK_SET
 from pathlib import Path
-from typing import Any, ClassVar
+from sys import stdout
+from typing import ClassVar
 
 import header
 from header import ElfClass
@@ -330,38 +331,6 @@ class ElfMachineType(Enum):
 
 # Temporary namespace that should be extracted into a separate module.
 class header_cls:
-    ADDRESS: ClassVar[str] = 'address'
-    HIDDEN: ClassVar[str] = 'hidden'
-    SIZE: ClassVar[str] = 'size'
-
-    @staticmethod
-    def print_field_value(field: dataclasses.Field, value: Any) -> str:
-        if field.metadata.get(header.ADDRESS, False):
-            return hex(value)
-        elif isinstance(value, Enum):
-            return value.name
-        return str(value)
-
-    @staticmethod
-    def print_table(objects: list) -> None:
-        """Print a table of multiple dataclass objects, one line per object."""
-        if not objects:
-            return
-        fields = dataclasses.fields(objects[0])
-        print(*(f'{field.name:>10}' for field in fields), sep=' ')
-        for obj in objects:
-            pv = [header_cls.print_field_value(f, v) for f, v in zip(fields, dataclasses.astuple(obj))]
-            print(*(f'{v:>10}' for v in pv), sep=' ')
-
-    @staticmethod
-    def print_single(obj: Any) -> None:
-        """Print a single dataclass object, one line per field."""
-        for field in dataclasses.fields(obj):
-            if field.metadata.get(header.HIDDEN, False):
-                continue
-            value = getattr(obj, field.name)
-            print(field.name, header_cls.print_field_value(field, value), sep=': ')
-
     @staticmethod
     def missing(cls, value):
         if cls.LOOS.value <= value <= cls.HIOS.value:
@@ -378,10 +347,6 @@ class header_cls:
 
 @dataclasses.dataclass(frozen=True)
 class ElfHeader:
-    ADDRESS: ClassVar[str] = 'address'
-    HIDDEN: ClassVar[str] = 'hidden'
-    SIZE: ClassVar[str] = 'size'
-
     magic: str = dataclasses.field(metadata=header.meta(size=4))  # offset = 0
     elf_class: ElfClass  # offset = 4
     endiannes: Endianness  # offset = 5
@@ -412,8 +377,6 @@ class ElfHeader:
         it is parsed before the headers themself."""
         assert len(header_bytes) >= 5
 
-        # magic: str = dataclasses.field(metadata={SIZE: 4})  # offset = 0
-        # elf_class: ElfClass  # offset = 4
         if header_bytes[:4] != bytes.fromhex('7f 45 4c 46'):
             raise ValueError('The input stream is not a valid ELF file.')
         return ElfClass(header_bytes[4])
@@ -474,7 +437,7 @@ if __name__ == "__main__":
     elf_class = ElfHeader.get_elf_class(elf_header_bytes)
     elf_header = header.parse_header(elf_header_bytes, ElfHeader, elf_class)
     print("# ELF header")
-    header_cls.print_single(elf_header)
+    header.format_header_as_list(elf_header, stdout)
 
     # Now parse program headers.
     pheader_class = ProgramHeader64 if elf_class == ElfClass.ELF64 else ProgramHeader32
@@ -490,6 +453,6 @@ if __name__ == "__main__":
         pheader_entry = header.parse_header(pheader_data, pheader_class, elf_class)
         pheaders.append(pheader_entry)
     print("\n# Program headers")
-    header_cls.print_table(pheaders)
+    header.format_headers_as_table(pheaders, stdout)
 
     elf_file.close()
