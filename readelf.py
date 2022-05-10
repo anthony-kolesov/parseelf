@@ -335,17 +335,6 @@ class header_cls:
     SIZE: ClassVar[str] = 'size'
 
     @staticmethod
-    def parse_field_value(field: dataclasses.Field, stream: bytes) -> Any:
-        """Parse a field value from a byte stream."""
-        if issubclass(field.type, (str, bytes)):
-            return bytes.hex(stream)
-        elif issubclass(field.type, bytes):
-            return stream
-        else:
-            # Integer type
-            return field.type(to_int(stream))
-
-    @staticmethod
     def print_field_value(field: dataclasses.Field, value: Any) -> str:
         if field.metadata.get(header.ADDRESS, False):
             return hex(value)
@@ -476,26 +465,6 @@ class ProgramHeader64:
     align: int = dataclasses.field(metadata=header.meta(address=True))
 
 
-def to_int(b: bytes) -> int:
-    result = 0
-    shift = 0
-    for byte in b:
-        result += int(byte) << shift
-        shift += 8
-    return result
-
-
-def parse_header(header_bytes: bytes, header_type: type, elf_class: ElfClass) -> Any:
-    kwargs: dict[str, Any] = {}
-    start = 0
-    for field in dataclasses.fields(header_type):
-        end = start + header.field_size(field, elf_class)
-        kwargs[field.name] = header_cls.parse_field_value(field, header_bytes[start:end])
-        start = end
-
-    return header_type(**kwargs)
-
-
 if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
@@ -503,7 +472,7 @@ if __name__ == "__main__":
     elf_header_bytes = elf_file.read(64)
     # ELF class is a special case neede to properly parse address fields.
     elf_class = ElfHeader.get_elf_class(elf_header_bytes)
-    elf_header = parse_header(elf_header_bytes, ElfHeader, elf_class)
+    elf_header = header.parse_header(elf_header_bytes, ElfHeader, elf_class)
     print("# ELF header")
     header_cls.print_single(elf_header)
 
@@ -518,7 +487,7 @@ if __name__ == "__main__":
         end = start + pheader_size
         elf_file.seek(start, SEEK_SET)
         pheader_data = elf_file.read(pheader_size)
-        pheader_entry = parse_header(pheader_data, pheader_class, elf_class)
+        pheader_entry = header.parse_header(pheader_data, pheader_class, elf_class)
         pheaders.append(pheader_entry)
     print("\n# Program headers")
     header_cls.print_table(pheaders)
