@@ -3,6 +3,7 @@
 from argparse import ArgumentParser
 import dataclasses
 from enum import Enum
+from io import SEEK_SET
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -58,17 +59,19 @@ class ElfOsAbi(Enum):
 
 
 class ElfType(Enum):
-    ET_NONE = 0
-    ET_REL = 1
-    ET_EXEC = 2
-    ET_DYN = 3
-    ET_CORE = 4
-    # Those are actually start and end of the ranges, rather than individual values.
-    # But for simplicity we ignore this for now.
-    ET_LOOS = 0xFE00
-    ET_HIOS = 0xFEFF
-    ET_LOPROC = 0xFF00
-    ET_HIPROC = 0xFFFF
+    NONE = 0
+    REL = 1
+    EXEC = 2
+    DYN = 3
+    CORE = 4
+    LOOS = 0xFE00
+    HIOS = 0xFEFF
+    LOPROC = 0xFF00
+    HIPROC = 0xFFFF
+
+    @classmethod
+    def _missing_(cls, value):
+        return header.missing(cls, value)
 
 
 class ElfMachineType(Enum):
@@ -327,6 +330,73 @@ class ElfMachineType(Enum):
     EM_56800EF = 262  # NXP 56800EF Digital Signal Controller (DSC)
 
 
+# Temporary namespace that should be extracted into a separate module.
+class header:
+    ADDRESS: ClassVar[str] = 'address'
+    HIDDEN: ClassVar[str] = 'hidden'
+    SIZE: ClassVar[str] = 'size'
+
+    @staticmethod
+    def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:
+        size = field.metadata.get(ElfHeader.SIZE, 1)
+        # Handle 'address' types.
+        if size == ElfHeader.ADDRESS:
+            return (4 if elf_class == ElfClass.ELF32 else 8)
+        return int(size)
+
+    @staticmethod
+    def parse_field_value(field: dataclasses.Field, stream: bytes) -> Any:
+        """Parse a field value from a byte stream."""
+        if issubclass(field.type, (str, bytes)):
+            return bytes.hex(stream)
+        elif issubclass(field.type, bytes):
+            return stream
+        else:
+            # Integer type
+            return field.type(to_int(stream))
+
+    @staticmethod
+    def print_field_value(field: dataclasses.Field, value: Any) -> str:
+        if field.metadata.get(ElfHeader.SIZE, 1) == ElfHeader.ADDRESS:
+            return hex(value)
+        elif isinstance(value, Enum):
+            return value.name
+        return str(value)
+
+    @staticmethod
+    def print_table(objects: list) -> None:
+        """Print a table of multiple dataclass objects, one line per object."""
+        if not objects:
+            return
+        fields = dataclasses.fields(objects[0])
+        print(*(f'{field.name:>10}' for field in fields), sep=' ')
+        for obj in objects:
+            pv = [header.print_field_value(f, v) for f, v in zip(fields, dataclasses.astuple(obj))]
+            print(*(f'{v:>10}' for v in pv), sep=' ')
+
+    @staticmethod
+    def print_single(obj: Any) -> None:
+        """Print a single dataclass object, one line per field."""
+        for field in dataclasses.fields(obj):
+            if field.metadata.get(header.HIDDEN, False):
+                continue
+            value = getattr(obj, field.name)
+            print(field.name, header.print_field_value(field, value), sep=': ')
+
+    @staticmethod
+    def missing(cls, value):
+        if cls.LOOS.value <= value <= cls.HIOS.value:
+            name = hex(value)
+        elif cls.LOPROC.value <= value <= cls.HIPROC.value:
+            name = hex(value)
+        else:
+            return None
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj._name_ = name
+        return obj
+
+
 @dataclasses.dataclass(frozen=True)
 class ElfHeader:
     ADDRESS: ClassVar[str] = 'address'
@@ -354,34 +424,51 @@ class ElfHeader:
     section_header_entries: int = dataclasses.field(metadata={SIZE: 2})
     section_header_names_index: int = dataclasses.field(metadata={SIZE: 2})
 
-    def print(self) -> None:
-        for field in dataclasses.fields(ElfHeader):
-            if field.metadata.get(ElfHeader.HIDDEN, False):
-                continue
-            value = getattr(self, field.name)
-            if field.metadata.get(ElfHeader.SIZE, 1) == ElfHeader.ADDRESS:
-                value = hex(value)
-            elif isinstance(value, Enum):
-                value = value.name
-            print(field.name, value, sep=': ')
 
-    @staticmethod
-    def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:
-        size = field.metadata.get(ElfHeader.SIZE, 1)
-        # Handle 'address' types.
-        if size == ElfHeader.ADDRESS:
-            return (4 if elf_class == ElfClass.ELF32 else 8)
-        return int(size)
+class ProgramHeaderType(Enum):
+    NULL = 0  # Program header table entry unused.
+    LOAD = 0x00000001  # Loadable segment.
+    DYNAMIC = 0x00000002  # Dynamic linking information.
+    INTERP = 0x00000003  # Interpreter information.
+    NOTE = 0x00000004  # Auxiliary information.
+    SHLIB = 0x00000005  # Reserved.
+    PHDR = 0x00000006  # Segment containing program header table itself.
+    TLS = 0x00000007  # Thread-Local Storage template.
+    LOOS = 0x60000000  # Reserved inclusive range. Operating system specific.
+    HIOS = 0x6FFFFFFF
+    LOPROC = 0x70000000  # Reserved inclusive range. Processor specific.
+    HIPROC = 0x7FFFFFFF
 
-    @staticmethod
-    def fetch_field_value(field: dataclasses.Field, stream: bytes) -> Any:
-        if issubclass(field.type, (str, bytes)):
-            return bytes.hex(stream)
-        elif issubclass(field.type, bytes):
-            return stream
-        else:
-            # Integer type
-            return field.type(to_int(stream))
+    @classmethod
+    def _missing_(cls, value):
+        return header.missing(cls, value)
+
+
+# Program headers for 32 and 64 bit ELFs have different order of fields.
+@dataclasses.dataclass(frozen=True)
+class ProgramHeader32:
+    elf_class: ClassVar[ElfClass] = ElfClass.ELF32
+    type: ProgramHeaderType = dataclasses.field(metadata={header.SIZE: 4})
+    offset: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    vaddr: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    paddr: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    filesz: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    memsz: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    flags: int = dataclasses.field(metadata={header.SIZE: 4})
+    align: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+
+
+@dataclasses.dataclass(frozen=True)
+class ProgramHeader64:
+    elf_class: ClassVar[ElfClass] = ElfClass.ELF64
+    type: ProgramHeaderType = dataclasses.field(metadata={header.SIZE: 4})
+    flags: int = dataclasses.field(metadata={header.SIZE: 4})
+    offset: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    vaddr: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    paddr: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    filesz: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    memsz: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
+    align: int = dataclasses.field(metadata={header.SIZE: header.ADDRESS})
 
 
 def to_int(b: bytes) -> int:
@@ -403,8 +490,8 @@ def parse_elf_header(elf_header: bytes) -> ElfHeader:
     # the first variable sized field.
     elf_class: ElfClass = ElfClass.ELF32
     for field in dataclasses.fields(ElfHeader):
-        end = start + ElfHeader.field_size(field, elf_class)
-        kwargs[field.name] = ElfHeader.fetch_field_value(field, elf_header[start:end])
+        end = start + header.field_size(field, elf_class)
+        kwargs[field.name] = header.parse_field_value(field, elf_header[start:end])
         start = end
 
         # Update pointer size for 64bit targets.
@@ -414,10 +501,39 @@ def parse_elf_header(elf_header: bytes) -> ElfHeader:
     return ElfHeader(**kwargs)
 
 
+def parse_header(header_bytes: bytes, header_type: type, elf_class: ElfClass) -> Any:
+    kwargs: dict[str, Any] = {}
+    start = 0
+    for field in dataclasses.fields(header_type):
+        end = start + header.field_size(field, elf_class)
+        kwargs[field.name] = header.parse_field_value(field, header_bytes[start:end])
+        start = end
+
+    return header_type(**kwargs)
+
+
 if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
-    with open(args.input, 'rb') as elf_file:
-        elf_header_bytes = elf_file.read(64)
+    elf_file = open(args.input, 'rb')
+    elf_header_bytes = elf_file.read(64)
     elf_header = parse_elf_header(elf_header_bytes)
-    elf_header.print()
+    print("# ELF header")
+    header.print_single(elf_header)
+
+    # Now parse program headers.
+    pheader_start = elf_header.program_header_offset
+    pheader_count = elf_header.program_header_entries
+    pheader_size = elf_header.program_header_size
+    pheaders = []
+    for cnt in range(pheader_count):
+        start = pheader_start + pheader_size * cnt
+        end = start + pheader_size
+        elf_file.seek(start, SEEK_SET)
+        pheader_data = elf_file.read(pheader_size)
+        pheader_entry = parse_header(pheader_data, ProgramHeader64, ElfClass.ELF64)
+        pheaders.append(pheader_entry)
+    print("\n# Program headers")
+    header.print_table(pheaders)
+
+    elf_file.close()
