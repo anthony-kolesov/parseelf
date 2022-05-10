@@ -424,6 +424,21 @@ class ElfHeader:
     section_header_entries: int = dataclasses.field(metadata={SIZE: 2})
     section_header_names_index: int = dataclasses.field(metadata={SIZE: 2})
 
+    @staticmethod
+    def get_elf_class(header_bytes: bytes) -> ElfClass:
+        """Check ELF magic bytes and retrieve ELF class.
+
+        ELF class is quite important because it affects the size of
+        address-sized fields and sometimes the layout of the header, therefore
+        it is parsed before the headers themself."""
+        assert len(header_bytes) >= 5
+
+        # magic: str = dataclasses.field(metadata={SIZE: 4})  # offset = 0
+        # elf_class: ElfClass  # offset = 4
+        if header_bytes[:4] != bytes.fromhex('7f 45 4c 46'):
+            raise ValueError('The input stream is not a valid ELF file.')
+        return ElfClass(header_bytes[4])
+
 
 class ProgramHeaderType(Enum):
     NULL = 0  # Program header table entry unused.
@@ -480,23 +495,15 @@ def to_int(b: bytes) -> int:
     return result
 
 
-def parse_elf_header(elf_header: bytes) -> ElfHeader:
+def parse_elf_header(elf_header: bytes, elf_class: ElfClass) -> ElfHeader:
     assert len(elf_header) >= 52
 
     kwargs: dict[str, Any] = {}
     start = 0
-    # Need to know the ELF class to parse address-type fields. The ELF Class field itself has fixed size, so it doesn't
-    # matter with what value this variable it is initially initialized - it will be set correctly by the time we get to
-    # the first variable sized field.
-    elf_class: ElfClass = ElfClass.ELF32
     for field in dataclasses.fields(ElfHeader):
         end = start + header.field_size(field, elf_class)
         kwargs[field.name] = header.parse_field_value(field, elf_header[start:end])
         start = end
-
-        # Update pointer size for 64bit targets.
-        if field.name == 'elf_class':
-            elf_class = kwargs[field.name]
 
     return ElfHeader(**kwargs)
 
@@ -517,11 +524,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     elf_file = open(args.input, 'rb')
     elf_header_bytes = elf_file.read(64)
-    elf_header = parse_elf_header(elf_header_bytes)
+    # ELF class is a special case neede to properly parse address fields.
+    elf_class = ElfHeader.get_elf_class(elf_header_bytes)
+    elf_header = parse_elf_header(elf_header_bytes, elf_class)
     print("# ELF header")
     header.print_single(elf_header)
 
     # Now parse program headers.
+    pheader_class = ProgramHeader64 if elf_class == ElfClass.ELF64 else ProgramHeader32
     pheader_start = elf_header.program_header_offset
     pheader_count = elf_header.program_header_entries
     pheader_size = elf_header.program_header_size
@@ -531,7 +541,7 @@ if __name__ == "__main__":
         end = start + pheader_size
         elf_file.seek(start, SEEK_SET)
         pheader_data = elf_file.read(pheader_size)
-        pheader_entry = parse_header(pheader_data, ProgramHeader64, ElfClass.ELF64)
+        pheader_entry = parse_header(pheader_data, pheader_class, elf_class)
         pheaders.append(pheader_entry)
     print("\n# Program headers")
     header.print_table(pheaders)
