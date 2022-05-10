@@ -15,7 +15,7 @@ __all__ = [
 
 import dataclasses
 from enum import Enum
-from typing import Type
+from typing import BinaryIO, Type
 
 import header
 from header import ElfClass
@@ -379,6 +379,23 @@ class ElfHeader:
         if header_bytes[:4] != bytes.fromhex('7f 45 4c 46'):
             raise ValueError('The input stream is not a valid ELF file.')
         return ElfClass(header_bytes[4])
+
+    @staticmethod
+    def parse_elf_header(header_bytes: bytes) -> 'ElfHeader':
+        """Parse an ELF header from a given bytes from the file."""
+        # ELF class is a special case needed to properly parse address fields.
+        elf_class = ElfHeader.get_elf_class(header_bytes)
+        return header.parse_header(header_bytes, ElfHeader, elf_class)
+
+    @staticmethod
+    def read_elf_header(stream: BinaryIO) -> 'ElfHeader':
+        """Read ELF header from a binary stream.
+
+        Unlike `parse_elf_header` this function reads data from a stream, and
+        thus changes current state of the input stream."""
+        stream.seek(0)
+        elf_header_bytes = stream.read(64)
+        return ElfHeader.parse_elf_header(elf_header_bytes)
 
 
 #

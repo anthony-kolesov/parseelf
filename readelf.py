@@ -27,15 +27,12 @@ if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
     elf_file = open(args.input, 'rb')
-    elf_header_bytes = elf_file.read(64)
-    # ELF class is a special case neede to properly parse address fields.
-    elf_class = elf.ElfHeader.get_elf_class(elf_header_bytes)
-    elf_header = header.parse_header(elf_header_bytes, elf.ElfHeader, elf_class)
+    elf_header = elf.ElfHeader.read_elf_header(elf_file)
     print("# ELF header")
     header.format_header_as_list(elf_header, stdout)
 
     # Now parse program headers.
-    pheader_class = elf.get_program_header_type(elf_class)
+    pheader_class = elf.get_program_header_type(elf_header.elf_class)
     pheader_start = elf_header.program_header_offset
     pheader_count = elf_header.program_header_entries
     pheader_size = elf_header.program_header_size
@@ -45,7 +42,7 @@ if __name__ == "__main__":
         end = start + pheader_size
         elf_file.seek(start, SEEK_SET)
         pheader_data = elf_file.read(pheader_size)
-        pheader_entry = header.parse_header(pheader_data, pheader_class, elf_class)
+        pheader_entry = header.parse_header(pheader_data, pheader_class, elf_header.elf_class)
         pheaders.append(pheader_entry)
     print("\n# Program headers")
     header.format_headers_as_table(pheaders, stdout)
