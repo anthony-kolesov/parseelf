@@ -10,12 +10,17 @@ __all__ = [
     'ProgramHeaderType',
     'ProgramHeader32',
     'ProgramHeader64',
-    'get_program_header_type'
+    'get_program_header_type',
+    'read_program_headers',
+    'SectionType',
+    'SectionFlags',
+    'SectionHeader',
+    'read_section_headers',
 ]
 
 import dataclasses
-from enum import Enum
-from typing import BinaryIO, Type
+from enum import Enum, IntFlag
+from typing import BinaryIO, Iterator, Type
 
 import header
 from header import ElfClass
@@ -38,7 +43,7 @@ def _missing_enum_value(cls, value):
 
 
 #
-# ELF header types
+# ELF header.
 #
 class Endianness(Enum):
     LITTLE = 1
@@ -399,7 +404,7 @@ class ElfHeader:
 
 
 #
-# Program header types.
+# Program header.
 #
 class ProgramHeaderType(Enum):
     NULL = 0  # Program header table entry unused.
@@ -479,7 +484,7 @@ def read_program_headers(
 ) -> list[ProgramHeader]:
     """Read program headers from the stream and parse them.
 
-    State of stream cursor can change during the function execution."""
+    State of the stream cursor can change during the function execution."""
     pheader_class = get_program_header_type(elf_header.elf_class)
     pheader_count = elf_header.program_header_entries
     pheader_size = elf_header.program_header_size
@@ -493,3 +498,94 @@ def read_program_headers(
         pheader_entry = header.parse_header(data[start:end], pheader_class, elf_header.elf_class)
         headers.append(pheader_entry)
     return headers
+
+
+#
+# Section header.
+#
+class SectionType(Enum):
+    NULL = 0x0  # Section header table entry unused
+    PROGBITS = 0x1  # Program data
+    SYMTAB = 0x2  # Symbol table
+    STRTAB = 0x3  # String table
+    RELA = 0x4  # Relocation entries with addends
+    HASH = 0x5  # Symbol hash table
+    DYNAMIC = 0x6  # Dynamic linking information
+    NOTE = 0x7  # Notes
+    NOBITS = 0x8  # Program space with no data (bss)
+    REL = 0x9  # Relocation entries, no addends
+    SHLIB = 0x0A  # Reserved
+    DYNSYM = 0x0B  # Dynamic linker symbol table
+    INIT_ARRAY = 0x0E  # Array of constructors
+    FINI_ARRAY = 0x0F  # Array of destructors
+    PREINIT_ARRAY = 0x10  # Array of pre-constructors
+    GROUP = 0x11  # Section group
+    SYMTAB_SHNDX = 0x12  # Extended section indices
+    NUM = 0x13  # Number of defined types.
+    LOOS = 0x60000000  # Start OS-specific.
+    HIOS = 0xFFFFFFFF
+
+    @classmethod
+    def _missing_(cls, value):
+        return _missing_enum_value(cls, value)
+
+
+class SectionFlags(IntFlag):
+    NONE = 0
+    WRITE = 0x1  # Writable
+    ALLOC = 0x2  # Occupies memory during execution
+    EXECINSTR = 0x4  # Executable
+    MERGE = 0x10  # Might be merged
+    STRINGS = 0x20  # Contains null-terminated strings
+    INFO_LINK = 0x40  # 'sh_info' contains SHT index
+    LINK_ORDER = 0x80  # Preserve order after combining
+    OS_NONCONFORMING = 0x100  # Non-standard OS specific handling required
+    GROUP = 0x200  # Section is member of a group
+    TLS = 0x400  # Section hold thread-local data
+    ORDERED = 0x4000000  # Special ordering requirement (Solaris)
+    EXCLUDE = 0x8000000  # Section is excluded unless referenced or allocated (Solaris)
+
+    @classmethod
+    def _missing_(cls, value):
+        MASKOS = 0x0FF00000
+        MASKPROC = 0xF0000000
+        if (value & MASKOS == value) or (value & MASKPROC == value):
+            obj = int.__new__(cls)
+            obj._value_ = value
+            obj._name_ = hex(value)
+            return obj
+        return super()._missing_(value)
+
+
+@dataclasses.dataclass(frozen=True)
+class SectionHeader:
+    # An offset to a string in the .shstrtab section that represents the name of
+    # this section.
+    name: int = dataclasses.field(metadata=header.meta(size=4))
+    type: SectionType = dataclasses.field(metadata=header.meta(size=4))
+    flags: SectionFlags = dataclasses.field(metadata=header.meta(address=True))
+    address: int = dataclasses.field(metadata=header.meta(address=True))
+    offset: int = dataclasses.field(metadata=header.meta(address=True))
+    size: int = dataclasses.field(metadata=header.meta(address=True))
+    link: int = dataclasses.field(metadata=header.meta(size=4))
+    info: int = dataclasses.field(metadata=header.meta(size=4))
+    address_alignment: int = dataclasses.field(metadata=header.meta(address=True))
+    entry_size: int = dataclasses.field(metadata=header.meta(address=True))
+
+
+def read_section_headers(
+    stream: BinaryIO,
+    elf_header: ElfHeader,
+) -> Iterator[SectionHeader]:
+    """Read section headers from the stream and parse them.
+
+    State of the stream cursor can change during the function execution."""
+    section_header_count = elf_header.section_header_entries
+    section_header_size = elf_header.section_header_size
+
+    stream.seek(elf_header.section_header_offset)
+    data = stream.read(section_header_count * section_header_size)
+    for cnt in range(section_header_count):
+        start = section_header_size * cnt
+        end = start + section_header_size
+        yield header.parse_header(data[start:end], SectionHeader, elf_header.elf_class)

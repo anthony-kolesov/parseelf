@@ -35,4 +35,9 @@ if __name__ == "__main__":
     print("\n# Program headers")
     header.format_headers_as_table(pheaders, stdout)
 
+    # Section headers
+    section_headers = elf.read_section_headers(elf_file, elf_header)
+    print("\n# Section headers")
+    header.format_headers_as_table(list(section_headers), stdout)
+
     elf_file.close()

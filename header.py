@@ -13,7 +13,7 @@ __all__ = [
 ]
 
 import dataclasses
-from enum import Enum
+from enum import Enum, IntFlag
 from typing import Any, TextIO, Type, TypeVar
 
 _ADDRESS = 'address'
@@ -36,10 +36,20 @@ def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:
 
 def format_value(field: dataclasses.Field, value: Any) -> str:
     """Format field value to a string."""
-    if field.metadata.get(_ADDRESS, False):
-        return hex(value)
+    # Check for type first, because some enums have address-size.
+    if isinstance(value, IntFlag):
+        # This one is weird, because members of the flags enums are not stored
+        # separately, and there is no public function to access them (enum.py
+        # defines a prive _decompose that is called everytime __str__() need a
+        # list of members). And standard __str__() always returns a string
+        # starting with a class name. Hence we remove the class name explicitly,
+        # even though it looks very gross.
+        type_name_length = len(type(value).__name__) + 1  # Account for '.' afterthe  type name.
+        return str(value)[type_name_length:]
     elif isinstance(value, Enum):
         return value.name
+    elif field.metadata.get(_ADDRESS, False):
+        return hex(value)
     return str(value)
 
 
