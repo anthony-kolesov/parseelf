@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser
+import dataclasses
 from pathlib import Path
 from sys import stdout
 
@@ -33,11 +34,17 @@ if __name__ == "__main__":
     # Now parse program headers.
     pheaders = elf.read_program_headers(elf_file, elf_header)
     print("\n# Program headers")
-    header.format_headers_as_table(pheaders, stdout)
+    header.format_headers_as_table(list(pheaders), stdout)
 
     # Section headers
-    section_headers = elf.read_section_headers(elf_file, elf_header)
+    section_headers = list(elf.read_section_headers(elf_file, elf_header))
+    section_names = dict(elf.map_section_names(elf_file, elf_header, section_headers))
+
+    def sh_as_tuple(sheader: elf.SectionHeader) -> tuple:
+        """Replace name offset with the name itself."""
+        return (section_names[sheader.name_offset], *dataclasses.astuple(sheader)[1::])
+
     print("\n# Section headers")
-    header.format_headers_as_table(list(section_headers), stdout)
+    header.format_headers_as_table(section_headers, stdout, astuple=sh_as_tuple)
 
     elf_file.close()

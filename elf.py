@@ -16,6 +16,7 @@ __all__ = [
     'SectionFlags',
     'SectionHeader',
     'read_section_headers',
+    'map_section_names',
 ]
 
 import dataclasses
@@ -481,7 +482,7 @@ def get_program_header_type(elf_class: ElfClass) -> Type[ProgramHeader32] | Type
 def read_program_headers(
     stream: BinaryIO,
     elf_header: ElfHeader,
-) -> list[ProgramHeader]:
+) -> Iterator[ProgramHeader]:
     """Read program headers from the stream and parse them.
 
     State of the stream cursor can change during the function execution."""
@@ -491,13 +492,10 @@ def read_program_headers(
 
     stream.seek(elf_header.program_header_offset)
     data = stream.read(pheader_size * pheader_count)
-    headers: list[ProgramHeader] = []
     for cnt in range(pheader_count):
         start = pheader_size * cnt
         end = start + pheader_size
-        pheader_entry = header.parse_header(data[start:end], pheader_class, elf_header.elf_class)
-        headers.append(pheader_entry)
-    return headers
+        yield header.parse_header(data[start:end], pheader_class, elf_header.elf_class)
 
 
 #
@@ -559,9 +557,9 @@ class SectionFlags(IntFlag):
 
 @dataclasses.dataclass(frozen=True)
 class SectionHeader:
-    # An offset to a string in the .shstrtab section that represents the name of
-    # this section.
-    name: int = dataclasses.field(metadata=header.meta(size=4))
+    name_offset: int = dataclasses.field(metadata=header.meta(size=4))
+    """An offset to a string in the .shstrtab section with the name of this section."""
+
     type: SectionType = dataclasses.field(metadata=header.meta(size=4))
     flags: SectionFlags = dataclasses.field(metadata=header.meta(address=True))
     address: int = dataclasses.field(metadata=header.meta(address=True))
@@ -589,3 +587,24 @@ def read_section_headers(
         start = section_header_size * cnt
         end = start + section_header_size
         yield header.parse_header(data[start:end], SectionHeader, elf_header.elf_class)
+
+
+def map_section_names(
+    stream: BinaryIO,
+    elf_header: ElfHeader,
+    sections: list[SectionHeader],
+) -> Iterator[tuple[int, str]]:
+    """Map section name offsets to names themself.
+
+    Returns an iterator for tuples, where first item is the section name
+    offset, and second is the section name itself. The section name can be
+    matched with a section object either by index or by the section name
+    offset."""
+    # Names are in the .shstrtab section.
+    shstrtab_section = sections[elf_header.section_header_names_index]
+    # Seek to the .shstrtab section and read it.
+    stream.seek(shstrtab_section.offset)
+    data = stream.read(shstrtab_section.size)
+    for section in sections:
+        end = data.find(b'\x00', section.name_offset)
+        yield section.name_offset, data[section.name_offset:end].decode('ascii')

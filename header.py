@@ -14,7 +14,7 @@ __all__ = [
 
 import dataclasses
 from enum import Enum, IntFlag
-from typing import Any, TextIO, Type, TypeVar
+from typing import Any, Callable, TextIO, Type, TypeVar
 
 _ADDRESS = 'address'
 _HIDDEN = 'hidden'
@@ -62,7 +62,11 @@ def format_header_as_list(obj: Any, output: TextIO) -> None:
         print(field.name, format_value(field, value), sep=': ', file=output)
 
 
-def format_headers_as_table(objects: list, output: TextIO) -> None:
+def format_headers_as_table(
+    objects: list,
+    output: TextIO,
+    astuple: Callable[[Any], tuple] = dataclasses.astuple,
+) -> None:
     """Print a table of multiple dataclass objects, one line per object."""
     if not objects:
         return
@@ -71,7 +75,7 @@ def format_headers_as_table(objects: list, output: TextIO) -> None:
     print(*(f'{field.name:>10}' for field in fields), sep=' ', file=output)
     # Print rows.
     for obj in objects:
-        row = [format_value(f, v) for f, v in zip(fields, dataclasses.astuple(obj))]
+        row = [format_value(f, v) for f, v in zip(fields, astuple(obj))]
         print(*(f'{col:>10}' for col in row), sep=' ', file=output)
 
 
@@ -115,7 +119,7 @@ def parse_value(field: dataclasses.Field, stream: bytes) -> Any:
         # This is an easy but not optimal way - convert bytes to a hext string
         # and then parse integer from the string.
         # Note that bytes come little endian, hence have to be reversed.
-        # TODO: It seems to me that for big endiand targets the data will be
+        # TODO: It seems to me that for big endian targets the data will be
         # big endian as well? If so the function would have to accept
         # endianness as an argument. For now I only care about little endian
         # targets.
