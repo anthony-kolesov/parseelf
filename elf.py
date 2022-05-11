@@ -1,3 +1,6 @@
+# Copyright (c) 2022 Anton Kolesov
+# SPDX-License-Identifier: MIT
+
 """Classes specific to parsing of ELF files."""
 
 __all__ = [

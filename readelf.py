@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+# Copyright (c) 2022 Anton Kolesov
+# SPDX-License-Identifier: MIT
+
 from argparse import ArgumentParser
 import dataclasses
 from pathlib import Path

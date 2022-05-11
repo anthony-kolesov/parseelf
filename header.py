@@ -1,3 +1,6 @@
+# Copyright (c) 2022 Anton Kolesov
+# SPDX-License-Identifier: MIT
+
 """Helper module to deal with data classes representing ELF headers."""
 
 __all__ = [
