@@ -20,6 +20,7 @@ __all__ = [
     'SectionHeader',
     'read_section_headers',
     'map_section_names',
+    'map_string_table',
 ]
 
 import dataclasses
@@ -611,3 +612,40 @@ def map_section_names(
     for section in sections:
         end = data.find(b'\x00', section.name_offset)
         yield section.name_offset, data[section.name_offset:end].decode('ascii')
+
+
+#
+# String table
+#
+def map_string_table(
+    stream: BinaryIO,
+    string_table_section: SectionHeader,
+) -> Iterator[tuple[int, str]]:
+    """Map strings in a string table to their indexes.
+
+    When sections need to reference a variable length string they typically
+    store a fixed-size offset in the related string table section. This
+    approach is used in various places, for example .shstrtab section contains
+    section names and .strtab contains various strings, for example those
+    referenced from the .symtab section.
+
+    This function implements a common algorith that parses strings in the
+    string table into a dictionary, where key is the offset and the value is
+    the string itself. String in the table end with a null character. Note that
+    references into the string table can point to an arbitrary location in the
+    table - not necessarily to the beginning of the string. This implementation
+    doesn't work well in this case - users need to handle this themselves,
+    trating provided dictionary keys as range boundaries. Strings are returned
+    in order they occur in the table."""
+    # Seek to the .shstrtab section and read it.
+    stream.seek(string_table_section.offset)
+    data = stream.read(string_table_section.size)
+
+    # First entry with index 0 is always an empty string itself.
+    # yield 0, ''
+
+    start = 1
+    while start < len(data):
+        end = data.find(b'\x00', start)
+        yield start, data[start:end].decode('ascii')
+        start = end + 1  # Point to the next string
