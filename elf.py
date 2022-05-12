@@ -10,9 +10,6 @@ __all__ = [
     'ElfMachineType',
     'ElfHeader',
     'ProgramHeaderType',
-    'ProgramHeader32',
-    'ProgramHeader64',
-    'get_program_header_type',
     'read_program_headers',
     'SectionType',
     'SectionFlags',
@@ -27,7 +24,7 @@ __all__ = [
 import collections.abc
 import dataclasses
 from enum import Enum, IntFlag
-from typing import BinaryIO, Iterator, Type
+from typing import BinaryIO, Iterator
 
 import header
 from header import ElfClass
@@ -458,7 +455,7 @@ class ProgramHeader:
 
 
 @dataclasses.dataclass(frozen=True)
-class ProgramHeader32(ProgramHeader):
+class _ProgramHeader32(ProgramHeader):
     type: ProgramHeaderType = dataclasses.field(metadata=header.meta(size=4))
     offset: int = dataclasses.field(metadata=header.meta(address=True))
     vaddr: int = dataclasses.field(metadata=header.meta(address=True))
@@ -470,7 +467,7 @@ class ProgramHeader32(ProgramHeader):
 
 
 @dataclasses.dataclass(frozen=True)
-class ProgramHeader64(ProgramHeader):
+class _ProgramHeader64(ProgramHeader):
     type: ProgramHeaderType = dataclasses.field(metadata=header.meta(size=4))
     flags: int = dataclasses.field(metadata=header.meta(size=4))
     offset: int = dataclasses.field(metadata=header.meta(address=True))
@@ -481,10 +478,6 @@ class ProgramHeader64(ProgramHeader):
     align: int = dataclasses.field(metadata=header.meta(address=True))
 
 
-def get_program_header_type(elf_class: ElfClass) -> Type[ProgramHeader32] | Type[ProgramHeader64]:
-    return ProgramHeader64 if elf_class == ElfClass.ELF64 else ProgramHeader32
-
-
 def read_program_headers(
     stream: BinaryIO,
     elf_header: ElfHeader,
@@ -492,7 +485,7 @@ def read_program_headers(
     """Read program headers from the stream and parse them.
 
     State of the stream cursor can change during the function execution."""
-    pheader_class = get_program_header_type(elf_header.elf_class)
+    pheader_class = _ProgramHeader64 if elf_header.elf_class == ElfClass.ELF64 else _ProgramHeader32
     pheader_count = elf_header.program_header_entries
     pheader_size = elf_header.program_header_size
 
