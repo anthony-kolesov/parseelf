@@ -8,6 +8,7 @@ __all__ = [
     'ElfClass',
     # Functions.
     'field_size',
+    'structure_size',
     'format_value',
     'format_header_as_list',
     'format_headers_as_table',
@@ -29,12 +30,21 @@ class ElfClass(Enum):
     ELF32 = 1
     ELF64 = 2
 
+    def __init__(self, value: int) -> None:
+        self.byte_size = 4 * value
+        self.string_width = self.byte_size * 2
+
 
 def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:
     """Evaluate size of the field."""
     if field.metadata.get(_ADDRESS, False):
         return (4 if elf_class == ElfClass.ELF32 else 8)
     return field.metadata.get(_SIZE, 1)
+
+
+def structure_size(t: Type, elf_class: ElfClass) -> int:
+    """Evaluate size of the structure."""
+    return sum(field_size(f, elf_class) for f in dataclasses.fields(t))
 
 
 def format_value(field: dataclasses.Field, value: Any) -> str:

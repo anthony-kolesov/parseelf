@@ -18,6 +18,7 @@ class Arguments:
     file_header: bool
     program_headers: bool
     section_headers: bool
+    symbols: bool
     string_dump: list[str]
 
 
@@ -39,6 +40,11 @@ def create_parser() -> ArgumentParser:
     parser.add_argument(
         '--section-headers', '-S',
         help='Display the sections\' header',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--symbols', '--syms', '-s',
+        help='Display the symbol table',
         action='store_true',
     )
     parser.add_argument(
@@ -93,13 +99,37 @@ if __name__ == "__main__":
         else:
             return id
 
+    # Symbols
+    if args.symbols:
+        # Select SYMTAB and DYNSYM sections
+        symbol_names = elf.StringTable(elf_file, sections['.strtab'])
+        for section in section_headers:
+            if section.type not in (elf.SectionType.SYMTAB, elf.SectionType.DYNSYM):
+                continue
+            section_name = section_names[section.name_offset]
+            symbols = list(elf.read_symbols(elf_file, section, elf_header.elf_class))
+            value_width = elf_header.elf_class.string_width
+            print(f"\nSymbol table '{section_name}' contains {len(symbols)} entries:")
+            print(f'   Num: {"   Value":{value_width}}  Size Type    Bind   Vis      Ndx Name')
+            for num, symbol in enumerate(symbols):
+                print(
+                    f'{num:6}:',
+                    f'{symbol.value:0{value_width}x}',
+                    f'{symbol.size:5}',
+                    f'{symbol.type.name:7}',
+                    f'{symbol.bind.name:6}',
+                    f'{symbol.visibility.name:8}',
+                    f'{symbol.section_index_name:>3}',
+                    f'{symbol_names[symbol.name_offset]}',
+                )
+
     # Strings.
     if args.string_dump:
         for section_id in args.string_dump:
             section_name = section_id_to_name(section_id)
             section = sections[section_name]
             print(f"\nString dump of section '{section_name}':")
-            for offset, s in elf.map_string_table(elf_file, section):
+            for offset, s in elf.StringTable(elf_file, section):
                 print(f'  [{offset:6x}]  {s}')
             print()
 

@@ -4,7 +4,6 @@
 """Classes specific to parsing of ELF files."""
 
 __all__ = [
-    # Classes.
     'Endianness',
     'ElfOsAbi',
     'ElfType',
@@ -20,9 +19,12 @@ __all__ = [
     'SectionHeader',
     'read_section_headers',
     'map_section_names',
-    'map_string_table',
+    'StringTable',
+    'SymbolTableEntry',
+    'read_symbols',
 ]
 
+import collections.abc
 import dataclasses
 from enum import Enum, IntFlag
 from typing import BinaryIO, Iterator, Type
@@ -617,11 +619,8 @@ def map_section_names(
 #
 # String table
 #
-def map_string_table(
-    stream: BinaryIO,
-    string_table_section: SectionHeader,
-) -> Iterator[tuple[int, str]]:
-    """Map strings in a string table to their indexes.
+class StringTable(collections.abc.Iterable[tuple[int, str]]):
+    """A representation of a string table section from the ELF file.
 
     When sections need to reference a variable length string they typically
     store a fixed-size offset in the related string table section. This
@@ -629,23 +628,151 @@ def map_string_table(
     section names and .strtab contains various strings, for example those
     referenced from the .symtab section.
 
-    This function implements a common algorith that parses strings in the
-    string table into a dictionary, where key is the offset and the value is
-    the string itself. String in the table end with a null character. Note that
-    references into the string table can point to an arbitrary location in the
-    table - not necessarily to the beginning of the string. This implementation
-    doesn't work well in this case - users need to handle this themselves,
-    trating provided dictionary keys as range boundaries. Strings are returned
-    in order they occur in the table."""
-    # Seek to the .shstrtab section and read it.
-    stream.seek(string_table_section.offset)
-    data = stream.read(string_table_section.size)
+    Reads section from the file once, and stores read data as bytes.
+    String table can't be represented as a simple mapping because offsets into
+    the table may point into the middle of the string. For example if there are
+    strings `name` and `rename` then the table would contain only the `rename`
+    and whenever `name` is needed its offset would point into the third
+    character of that string.
 
-    # First entry with index 0 is always an empty string itself.
-    # yield 0, ''
+    Because the table is read once and stored in the memory it may not be
+    optimal for cases with large sections that have the size in order of the
+    machine's physical memory."""
 
-    start = 1
+    _data: bytes
+    """The section content."""
+
+    def __init__(
+        self,
+        stream: BinaryIO,
+        string_table_section: SectionHeader,
+    ) -> None:
+        stream.seek(string_table_section.offset)
+        self._data = stream.read(string_table_section.size)
+
+    def get(self, offset: int) -> str:
+        """Get a string from the table starting at the specified offset."""
+        if offset == 0:
+            return ''
+
+        end = self._data.find(b'\x00', offset)
+        return self._data[offset:end].decode('ascii')
+
+    def __iter__(self) -> Iterator[tuple[int, str]]:
+        start = 1
+        while start < len(self._data):
+            end = self._data.find(b'\x00', start)
+            yield start, self._data[start:end].decode('ascii')
+            start = end + 1  # Point to the next string
+
+    def __getitem__(self, offset: int) -> str:
+        return self.get(offset)
+
+
+#
+# Symbol table.
+#
+class SymbolBind(Enum):
+    LOCAL = 0
+    GLOBAL = 1
+    WEAK = 2
+    LOPROC = 13
+    HIPROC = 15
+
+    @classmethod
+    def _missing_(cls, value):
+        return _missing_enum_value(cls, value)
+
+
+class SymbolType(Enum):
+    NOTYPE = 0
+    OBJECT = 1
+    FUNC = 2
+    SECTION = 3
+    FILE = 4
+    LOPROC = 13
+    HIPROC = 15
+
+    @classmethod
+    def _missing_(cls, value):
+        return _missing_enum_value(cls, value)
+
+
+class SymbolVisibility(Enum):
+    DEFAULT = 0
+    INTERNAL = 1
+    HIDDEN = 2
+    PROTECTED = 3
+
+
+class SymbolTableEntry:
+    name_offset: int
+    value: int
+    size: int
+    info: int
+    other: int
+    section_index: int
+    """The index of the section for which this symbol entry is defined."""
+
+    @property
+    def bind(self) -> SymbolBind:
+        return SymbolBind(self.info >> 4)
+
+    @property
+    def type(self) -> SymbolType:
+        return SymbolType(self.info & 0xf)
+
+    @property
+    def visibility(self) -> SymbolVisibility:
+        return SymbolVisibility(self.other & 0x3)
+
+    @property
+    def section_index_name(self) -> str:
+        if self.section_index == 0:
+            return 'UND'
+        elif self.section_index == 0xfff1:
+            return 'ABS'
+        elif self.section_index == 0xfff2:
+            return 'COMMON'
+        return str(self.section_index)
+
+
+@dataclasses.dataclass(frozen=True)
+class _SymbolTableEntry32(SymbolTableEntry):
+    name_offset: int = dataclasses.field(metadata=header.meta(size=4))
+    value: int = dataclasses.field(metadata=header.meta(address=True))
+    size: int = dataclasses.field(metadata=header.meta(size=4))
+    info: int = dataclasses.field(metadata=header.meta(size=1))
+    other: int = dataclasses.field(metadata=header.meta(size=1))
+    section_index: int = dataclasses.field(metadata=header.meta(size=2))
+
+
+@dataclasses.dataclass(frozen=True)
+class _SymbolTableEntry64(SymbolTableEntry):
+    name_offset: int = dataclasses.field(metadata=header.meta(size=4))
+    info: int = dataclasses.field(metadata=header.meta(size=1))
+    other: int = dataclasses.field(metadata=header.meta(size=1))
+    section_index: int = dataclasses.field(metadata=header.meta(size=2))
+    value: int = dataclasses.field(metadata=header.meta(address=True))
+    size: int = dataclasses.field(metadata=header.meta(size=8))
+
+
+def read_symbols(
+    stream: BinaryIO,
+    section: SectionHeader,
+    elf_class: ElfClass,
+) -> Iterator[SymbolTableEntry]:
+    """Read the symbol table entries from the given section."""
+    # Read the section.
+    stream.seek(section.offset)
+    data = stream.read(section.size)
+
+    entry_type = _SymbolTableEntry64 if elf_class == ElfClass.ELF64 else _SymbolTableEntry32
+    entry_size = header.structure_size(entry_type, elf_class)
+    assert section.size % entry_size == 0
+
+    start = 0
     while start < len(data):
-        end = data.find(b'\x00', start)
-        yield start, data[start:end].decode('ascii')
-        start = end + 1  # Point to the next string
+        end = start + entry_size
+        yield header.parse_header(data[start:end], entry_type, elf_class)
+        start = end
