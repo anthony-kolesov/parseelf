@@ -642,6 +642,7 @@ class StringTable(collections.abc.Iterable[tuple[int, str]]):
     ) -> None:
         stream.seek(string_table_section.offset)
         self._data = stream.read(string_table_section.size)
+        assert self._data and self._data[0] == 0
 
     def get(self, offset: int) -> str:
         """Get a string from the table starting at the specified offset."""
