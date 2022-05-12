@@ -66,8 +66,11 @@ def print_symbols(
     elf_class: header.ElfClass,
     elf_file: BinaryIO,
 ) -> None:
-    # Select SYMTAB and DYNSYM sections
-    symbol_names = elf.StringTable(elf_file, sections['.strtab'])
+    # Select SYMTAB and DYNSYM sections. Names are in .strtab and .dynstr
+    # sections respectively.
+    strtab = elf.StringTable(elf_file, sections['.strtab'])
+    if '.dynstr' in sections:
+        dynstr = elf.StringTable(elf_file, sections['.dynstr'])
     for section_name, section in sections.items():
         if section.type not in (elf.SectionType.SYMTAB, elf.SectionType.DYNSYM):
             continue
@@ -75,6 +78,7 @@ def print_symbols(
         value_width = elf_class.string_width
         print(f"\nSymbol table '{section_name}' contains {len(symbols)} entries:")
         print(f'   Num: {"   Value":{value_width}}  Size Type    Bind   Vis      Ndx Name')
+        name_section = strtab if section.type == elf.SectionType.SYMTAB else dynstr
         for num, symbol in enumerate(symbols):
             print(
                 f'{num:6}:',
@@ -84,7 +88,7 @@ def print_symbols(
                 f'{symbol.bind.name:6}',
                 f'{symbol.visibility.name:8}',
                 f'{symbol.section_index_name:>3}',
-                f'{symbol_names[symbol.name_offset]}',
+                f'{name_section[symbol.name_offset]}',
             )
 
 
