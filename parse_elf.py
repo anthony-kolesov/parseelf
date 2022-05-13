@@ -137,6 +137,9 @@ def string_dump(
     :param sections_to_dump: Names of sections to dump.
     :param sections: Mapping from section names to headers."""
     for section_name in sections_to_dump:
+        if section_name not in sections:
+            print(f"readelf: Warning: Section '{section_name}' was not dumped because it does not exist!")
+            continue
         section = sections[section_name]
         print(f"\nString dump of section '{section_name}':")
         for offset, s in elf.StringTable(elf_file, section):
