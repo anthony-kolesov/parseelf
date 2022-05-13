@@ -30,9 +30,17 @@ class ElfClass(Enum):
     ELF32 = 1
     ELF64 = 2
 
+    byte_size: int
+    """Amount of bytes needed to represent address for this ELF class."""
+    string_width: int
+    "Amount of characters needed to represent the address in hex format."""
+    address_format: str
+    "The string format to represent the address (without `0x`)."""
+
     def __init__(self, value: int) -> None:
         self.byte_size = 4 * value
         self.string_width = self.byte_size * 2
+        self.address_format = f'0{self.string_width}x'
 
 
 def field_size(field: dataclasses.Field, elf_class: ElfClass) -> int:

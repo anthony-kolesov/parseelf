@@ -539,11 +539,15 @@ class SectionFlags(IntFlag):
     OS_NONCONFORMING = 0x100  # Non-standard OS specific handling required
     GROUP = 0x200  # Section is member of a group
     TLS = 0x400  # Section hold thread-local data
+    COMPRESSED = 0x800  # Section containing compressed data
     ORDERED = 0x4000000  # Special ordering requirement (Solaris)
     EXCLUDE = 0x8000000  # Section is excluded unless referenced or allocated (Solaris)
 
     @classmethod
     def _missing_(cls, value):
+        # Can't add those values as class variables, as interpreter gets into
+        # some infinite recursion. And if I add them to _ignore_, then they are
+        # not available inside of the functions.
         MASKOS = 0x0FF00000
         MASKPROC = 0xF0000000
         if (value & MASKOS == value) or (value & MASKPROC == value):
@@ -552,6 +556,42 @@ class SectionFlags(IntFlag):
             obj._name_ = hex(value)
             return obj
         return super()._missing_(value)
+
+    @property
+    def summary(self) -> str:
+        """Format string in the style of readelf -S option."""
+        MASKOS = 0x0FF00000
+        MASKPROC = 0xF0000000
+        result: list[str] = []
+        if SectionFlags.WRITE in self:
+            result.append('W')
+        if SectionFlags.ALLOC in self:
+            result.append('A')
+        if SectionFlags.EXECINSTR in self:
+            result.append('X')
+        if SectionFlags.MERGE in self:
+            result.append('M')
+        if SectionFlags.STRINGS in self:
+            result.append('S')
+        if SectionFlags.INFO_LINK in self:
+            result.append('I')
+        if SectionFlags.LINK_ORDER in self:
+            result.append('L')
+        if SectionFlags.OS_NONCONFORMING in self:
+            result.append('O')
+        if SectionFlags.GROUP in self:
+            result.append('G')
+        if SectionFlags.TLS in self:
+            result.append('T')
+        if SectionFlags.COMPRESSED in self:
+            result.append('C')
+        if self.value & MASKOS:
+            result.append('o')
+        if SectionFlags.EXCLUDE in self:
+            result.append('E')
+        if self.value & MASKPROC:
+            result.append('p')
+        return ''.join(result)
 
 
 @dataclasses.dataclass(frozen=True)

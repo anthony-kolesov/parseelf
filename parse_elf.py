@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: MIT
 
 from argparse import ArgumentParser
-import dataclasses
 from pathlib import Path
 from typing import BinaryIO, cast, Iterable, Mapping
 from sys import stdout
@@ -59,6 +58,38 @@ def create_parser() -> ArgumentParser:
         help='input file path',
     )
     return parser
+
+
+def print_section_headers(
+    sections: Mapping[str, elf.SectionHeader],
+    elf_header: elf.ElfHeader,
+) -> None:
+    print(f'There are {len(sections)} section headers, '
+          f'starting at offset {elf_header.section_header_offset:#x}:')
+    print('\nSection Headers:')
+    address_title = format('Addr', '8') if elf_header.elf_class == header.ElfClass.ELF32 else format('Address', '16')
+    print(f'  [Nr] Name              Type            {address_title} Off    Size   ES Flg Lk Inf Al')
+    for nr, item in enumerate(sections.items()):
+        name = item[0]
+        section = item[1]
+        print(
+            f'  [{nr:2}]',
+            format(name, '17'),
+            format(section.type.name, '15'),
+            format(section.address, elf_header.elf_class.address_format),
+            format(section.offset, '06x'),
+            format(section.size, '06x'),
+            format(section.entry_size, '02x'),
+            format(section.flags.summary, '>3'),
+            format(section.link, '2'),
+            format(section.info, '3'),
+            format(section.address_alignment, '2'),
+        )
+    print(f"""Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings), I (info),
+  L (link order), O (extra OS processing required), G (group), T (TLS),
+  C (compressed), x (unknown), o (OS specific), E (exclude),
+  {'l (large), ' if elf_header.elf_class == header.ElfClass.ELF64 else ''}p (processor specific)""")
 
 
 def print_symbols(
@@ -134,12 +165,7 @@ if __name__ == "__main__":
     # The line below relies on the fact that section names are in the same order as sections.
     sections = dict(zip(section_names.values(), section_headers))
     if args.section_headers:
-        def sh_as_tuple(sheader: elf.SectionHeader) -> tuple:
-            """Replace name offset with the name itself."""
-            return (section_names[sheader.name_offset], *dataclasses.astuple(sheader)[1::])
-
-        print("\n# Section headers")
-        header.format_headers_as_table(section_headers, stdout, astuple=sh_as_tuple)
+        print_section_headers(sections, elf_header)
 
     def section_id_to_name(id: str) -> str:
         """Convert section name or number to a name.
