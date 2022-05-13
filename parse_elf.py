@@ -60,6 +60,41 @@ def create_parser() -> ArgumentParser:
     return parser
 
 
+def print_file_header(
+    elf_header: elf.ElfHeader,
+    magic_bytes: bytes,
+) -> None:
+    """Print ELF header in format identical to readelf --file-header."""
+    print("ELF Header:")
+
+    def pr(t: str, v: object) -> None:
+        t += ':'
+        print(f'  {t:34}', v)
+
+    # Magic line is different from the rest.
+    print('  Magic:  ', bytes.hex(magic_bytes[0:16], sep=' ', bytes_per_sep=1), '')
+    pr('Class', elf_header.elf_class.name)
+    pr('Data', elf_header.endiannes.description)
+    pr('Version', str(elf_header.version) + (' (current)' if elf_header.version == 1 else ''))
+    pr('OS/ABI', elf_header.osabi.description)
+    pr('ABI Version', elf_header.abiversion)
+    obj_type_description = (f' ({elf_header.objectType.description})' if elf_header.objectType.description else '')
+    pr('Type', elf_header.objectType.name + obj_type_description)
+    mdescr = elf_header.machine.description if elf_header.machine.description else elf_header.machine.name
+    pr('Machine', mdescr)
+    pr('Version', format(elf_header.version2, '#x'))
+    pr('Entry point address', format(elf_header.entry, '#x'))
+    pr('Start of program headers', f'{elf_header.program_header_offset} (bytes into file)')
+    pr('Start of section headers', f'{elf_header.section_header_offset} (bytes into file)')
+    pr('Flags', format(elf_header.flags, '#x'))
+    pr('Size of this header', f'{elf_header.elf_header_size} (bytes)')
+    pr('Size of program headers', f'{elf_header.program_header_size} (bytes)')
+    pr('Number of program headers', elf_header.program_header_entries)
+    pr('Size of section headers', f'{elf_header.section_header_size} (bytes)')
+    pr('Number of section headers', elf_header.section_header_entries)
+    pr('Section header string table index', elf_header.section_header_names_index)
+
+
 def print_section_headers(
     sections: Mapping[str, elf.SectionHeader],
     elf_header: elf.ElfHeader,
@@ -153,8 +188,8 @@ if __name__ == "__main__":
     elf_file = open(args.input, 'rb')
     elf_header = elf.ElfHeader.read_elf_header(elf_file)
     if args.file_header:
-        print("# ELF header")
-        header.format_header_as_list(elf_header, stdout)
+        elf_file.seek(0)
+        print_file_header(elf_header, elf_file.read(16))
 
     # Now parse program headers.
     pheaders = elf.read_program_headers(elf_file, elf_header)

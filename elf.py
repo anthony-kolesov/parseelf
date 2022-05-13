@@ -50,42 +50,65 @@ def _missing_enum_value(cls, value):
 # ELF header.
 #
 class Endianness(Enum):
-    LITTLE = 1
-    BIG = 2
+    description: str
+    "Text description of this endianness type."
+
+    def __new__(cls, value, description):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.description = description
+        return obj
+
+    NONE = (0, "none")
+    LITTLE = (1, "2's complement, little endian")
+    BIG = (2, "2's complement, big endian")
 
 
 class ElfOsAbi(Enum):
-    SYSTEMV = 0
-    HPUX = 1
-    NETBSD = 2
-    GNU = 3
-    LINUX = 3
-    SOLARIS = 4
-    AIX = 5
-    IRIX = 6
-    FREEBSD = 7
-    TRU64 = 10
-    MODESTO = 11
-    OPENBSD = 12
-    OPENVMS = 13
-    NSK = 14
-    AROS = 15
-    FENIXOS = 16
-    CLOUDABI = 17
-    OPENVOS = 18
-    C6000_ELFABI = 64
-    C6000_LINUX = 65
-    ARM_FDPIC = 65
-    ARM = 97
-    STANDALONE = 255
+    description: str
+    "Text description of this OS/ABI type."
+
+    def __new__(cls, value, description=''):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.description = description
+        return obj
+
+    SYSTEMV = (0, 'UNIX - System V')
+    HPUX = (1, 'UNIX - HP-UX')
+    NETBSD = (2, 'UNIX - NetBSD')
+    GNU = (3, 'UNIX - GNU')
+    LINUX = (3, 'UNIX - Linux')
+    SOLARIS = (4, 'UNIX - Solaris')
+    AIX = (5, 'UNIX - AIX')
+    IRIX = (6, 'UNIX - IRIX')
+    FREEBSD = (7, 'UNIX - FreeBSD')
+    TRU64 = (10, 'UNIX - TRU64')
+    MODESTO = (11, 'Novell - Modesto')
+    OPENBSD = (12, 'UNIX - OpenBSD')
+    OPENVMS = (13, 'VMS - OpenVMS')
+    NSK = (14, 'HP - Non-Stop Kernel')
+    AROS = (15, 'AROS')
+    FENIXOS = (16, 'FenixOS')
+    CLOUDABI = (17, 'Nuxi CloudABI')
+    OPENVOS = (18, 'Stratus Technologies OpenVOS')
 
 
 class ElfType(Enum):
-    NONE = 0
-    REL = 1
-    EXEC = 2
-    DYN = 3
-    CORE = 4
+    description: str
+    "Text description of this ELF file type."
+
+    def __new__(cls, value, description=''):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.description = description
+        return obj
+
+    NONE = (0, 'None')
+    REL = (1, 'Relocatable file')
+    EXEC = (2, 'Executable file')
+    DYN = (3, 'Shared object file')
+    CORE = (4, 'Core file')
     LOOS = 0xFE00
     HIOS = 0xFEFF
     LOPROC = 0xFF00
@@ -97,6 +120,15 @@ class ElfType(Enum):
 
 
 class ElfMachineType(Enum):
+    description: str
+    "Text description of this machine type."
+
+    def __new__(cls, value, description=''):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.description = description
+        return obj
+
     # This list comes from binutils/include/elf.h file.
     EM_NONE = 0  # No machine
     EM_M32 = 1  # AT&T WE 32100
@@ -163,7 +195,7 @@ class ElfMachineType(Enum):
     EM_ME16 = 59  # Toyota ME16 processor
     EM_ST100 = 60  # STMicroelectronics ST100 processor
     EM_TINYJ = 61  # Advanced Logic Corp. TinyJ embedded processor
-    EM_X86_64 = 62  # Advanced Micro Devices X86-64 processor
+    EM_X86_64 = (62, 'Advanced Micro Devices X86-64')
     EM_PDSP = 63  # Sony DSP Processor
     EM_PDP10 = 64  # Digital Equipment Corp. PDP-10
     EM_PDP11 = 65  # Digital Equipment Corp. PDP-11
@@ -301,7 +333,7 @@ class ElfMachineType(Enum):
     EM_CLOUDSHIELD = 192  # CloudShield architecture family
     EM_COREA_1ST = 193  # KIPO-KAIST Core-A 1st generation processor family
     EM_COREA_2ND = 194  # KIPO-KAIST Core-A 2nd generation processor family
-    EM_ARC_COMPACT2 = 195  # Synopsys ARCompact V2
+    EM_ARC_COMPACT2 = (195, 'ARCv2')  # Synopsys ARCompact V2
     EM_OPEN8 = 196  # Open8 8-bit RISC soft processor core
     EM_RL78 = 197  # Renesas RL78 family.
     EM_VIDEOCORE5 = 198  # Broadcom VideoCore V processor
