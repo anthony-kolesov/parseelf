@@ -798,6 +798,7 @@ class SymbolVisibility(Enum):
     PROTECTED = 3
 
 
+@dataclasses.dataclass(frozen=True)
 class SymbolTableEntry:
     name_offset: int
     value: int
@@ -806,6 +807,34 @@ class SymbolTableEntry:
     other: int
     section_index: int
     """The index of the section for which this symbol entry is defined."""
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        name_offset = Field.with_hint('name_offset', hints, 4)
+        value = Field.with_hint('value', hints, elf_class.byte_size)
+        size = Field.with_hint('size', hints, 4)
+        info = Field.with_hint('info', hints, 1)
+        other = Field.with_hint('other', hints, 1)
+        section_index = Field.with_hint('section_index', hints, 2)
+        if elf_class == ElfClass.ELF64:
+            return (
+                name_offset,
+                info,
+                other,
+                section_index,
+                value,
+                size,
+            )
+        else:
+            return (
+                name_offset,
+                value,
+                size,
+                info,
+                other,
+                section_index,
+            )
 
     @property
     def bind(self) -> SymbolBind:
@@ -830,26 +859,6 @@ class SymbolTableEntry:
         return str(self.section_index)
 
 
-@dataclasses.dataclass(frozen=True)
-class _SymbolTableEntry32(SymbolTableEntry):
-    name_offset: int = dataclasses.field(metadata=header.meta(size=4))
-    value: int = dataclasses.field(metadata=header.meta(address=True))
-    size: int = dataclasses.field(metadata=header.meta(size=4))
-    info: int = dataclasses.field(metadata=header.meta(size=1))
-    other: int = dataclasses.field(metadata=header.meta(size=1))
-    section_index: int = dataclasses.field(metadata=header.meta(size=2))
-
-
-@dataclasses.dataclass(frozen=True)
-class _SymbolTableEntry64(SymbolTableEntry):
-    name_offset: int = dataclasses.field(metadata=header.meta(size=4))
-    info: int = dataclasses.field(metadata=header.meta(size=1))
-    other: int = dataclasses.field(metadata=header.meta(size=1))
-    section_index: int = dataclasses.field(metadata=header.meta(size=2))
-    value: int = dataclasses.field(metadata=header.meta(address=True))
-    size: int = dataclasses.field(metadata=header.meta(size=8))
-
-
 def read_symbols(
     stream: BinaryIO,
     section: SectionHeader,
@@ -859,13 +868,9 @@ def read_symbols(
     # Read the section.
     stream.seek(section.offset)
     data = stream.read(section.size)
-
-    entry_type = _SymbolTableEntry64 if elf_class == ElfClass.ELF64 else _SymbolTableEntry32
-    entry_size = header.structure_size(entry_type, elf_class)
-    assert section.size % entry_size == 0
-
+    assert section.size % section.entry_size == 0
     start = 0
     while start < len(data):
-        end = start + entry_size
-        yield header.parse_header(data[start:end], entry_type, elf_class)
+        end = start + section.entry_size
+        yield header.parse_struct(data[start:end], SymbolTableEntry, elf_class)
         start = end
