@@ -135,7 +135,7 @@ class ElfMachineType(Enum):
     EM_NONE = 0  # No machine
     EM_M32 = 1  # AT&T WE 32100
     EM_SPARC = 2  # SUN SPARC
-    EM_386 = 3  # Intel 80386
+    EM_386 = (3, 'Intel 80386')  # Intel 80386
     EM_68K = 4  # Motorola m68k family
     EM_88K = 5  # Motorola m88k family
     EM_IAMCU = 6  # Intel MCU
@@ -479,6 +479,14 @@ class ProgramHeaderType(Enum):
     SHLIB = 0x00000005  # Reserved.
     PHDR = 0x00000006  # Segment containing program header table itself.
     TLS = 0x00000007  # Thread-Local Storage template.
+
+    # Formally those are OS-specific extensions, not part of SystemV ABI, but
+    # readelf defines them unconditionally, whether target is GNU or not.
+    GNU_EH_FRAME = 0x6474e550
+    GNU_STACK = 0x6474e551
+    GNU_RELRO = 0x6474e552
+    GNU_PROPERTY = 0x6474e553
+
     LOOS = 0x60000000  # Reserved inclusive range. Operating system specific.
     HIOS = 0x6FFFFFFF
     LOPROC = 0x70000000  # Reserved inclusive range. Processor specific.
@@ -604,6 +612,15 @@ class SectionType(Enum):
     GROUP = 0x11  # Section group
     SYMTAB_SHNDX = 0x12  # Extended section indices
     NUM = 0x13  # Number of defined types.
+
+    # Formally those are OS-specific extensions, not part of SystemV ABI, but
+    # readelf defines them unconditionally, whether target is GNU or not.
+    GNU_HASH = 0x6ffffff6
+    VERDEF = 0x6ffffffd
+    VERNEED = 0x6ffffffe
+    VERSYM = 0x6fffffff
+    GNU_LIBLIST = 0x6ffffff7
+
     LOOS = 0x60000000  # Start OS-specific.
     HIOS = 0xFFFFFFFF
 
