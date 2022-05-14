@@ -424,9 +424,9 @@ class ElfHeader:
             Field.with_hint('objectType', hints, 2),
             Field.with_hint('machine', hints, 2),
             Field.with_hint('version2', hints, 4),
-            Field.with_hint('entry', hints, elf_class.byte_size),
-            Field.with_hint('program_header_offset', hints, elf_class.byte_size),
-            Field.with_hint('section_header_offset', hints, elf_class.byte_size),
+            Field.with_hint('entry', hints, elf_class.address_size),
+            Field.with_hint('program_header_offset', hints, elf_class.address_size),
+            Field.with_hint('section_header_offset', hints, elf_class.address_size),
             Field.with_hint('flags', hints, 4),
             Field.with_hint('elf_header_size', hints, 2),
             Field.with_hint('program_header_size', hints, 2),
@@ -534,12 +534,12 @@ class ProgramHeader:
         hints = get_type_hints(cls)
         type = Field.with_hint('type', hints, 4)
         flags = Field.with_hint('flags', hints, 4)
-        offset = Field.with_hint('offset', hints, elf_class.byte_size)
-        vaddr = Field.with_hint('vaddr', hints, elf_class.byte_size)
-        paddr = Field.with_hint('paddr', hints, elf_class.byte_size)
-        filesz = Field.with_hint('filesz', hints, elf_class.byte_size)
-        memsz = Field.with_hint('memsz', hints, elf_class.byte_size)
-        align = Field.with_hint('align', hints, elf_class.byte_size)
+        offset = Field.with_hint('offset', hints, elf_class.address_size)
+        vaddr = Field.with_hint('vaddr', hints, elf_class.address_size)
+        paddr = Field.with_hint('paddr', hints, elf_class.address_size)
+        filesz = Field.with_hint('filesz', hints, elf_class.address_size)
+        memsz = Field.with_hint('memsz', hints, elf_class.address_size)
+        align = Field.with_hint('align', hints, elf_class.address_size)
         if elf_class == ElfClass.ELF64:
             return (
                 type,
@@ -700,14 +700,14 @@ class SectionHeader:
         return (
             Field.with_hint('name_offset', hints, 4),
             Field.with_hint('type', hints, 4),
-            Field.with_hint('flags', hints, elf_class.byte_size),
-            Field.with_hint('address', hints, elf_class.byte_size),
-            Field.with_hint('offset', hints, elf_class.byte_size),
-            Field.with_hint('size', hints, elf_class.byte_size),
+            Field.with_hint('flags', hints, elf_class.address_size),
+            Field.with_hint('address', hints, elf_class.address_size),
+            Field.with_hint('offset', hints, elf_class.address_size),
+            Field.with_hint('size', hints, elf_class.address_size),
             Field.with_hint('link', hints, 4),
             Field.with_hint('info', hints, 4),
-            Field.with_hint('address_alignment', hints, elf_class.byte_size),
-            Field.with_hint('entry_size', hints, elf_class.byte_size),
+            Field.with_hint('address_alignment', hints, elf_class.address_size),
+            Field.with_hint('entry_size', hints, elf_class.address_size),
         )
 
 
@@ -854,7 +854,7 @@ class SymbolTableEntry:
     def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
         hints = get_type_hints(cls)
         name_offset = Field.with_hint('name_offset', hints, 4)
-        value = Field.with_hint('value', hints, elf_class.byte_size)
+        value = Field.with_hint('value', hints, elf_class.address_size)
         size = Field.with_hint('size', hints, 4)
         info = Field.with_hint('info', hints, 1)
         other = Field.with_hint('other', hints, 1)

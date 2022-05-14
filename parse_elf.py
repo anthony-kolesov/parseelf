@@ -107,7 +107,7 @@ def print_program_headers(
         f'starting at offset {elf_header.program_header_offset}'
     )
     print("\nProgram Headers:")
-    addrw = elf_header.elf_class.string_width + 2
+    addrw = elf_header.elf_class.address_string_width + 2
     sizew = 8 if elf_header.elf_class == header.ElfClass.ELF64 else 7
     print(
         '  Type           Offset   '
@@ -208,7 +208,7 @@ def print_symbols(
         if section.type not in (elf.SectionType.SYMTAB, elf.SectionType.DYNSYM):
             continue
         symbols = list(elf.read_symbols(elf_file, section, elf_class))
-        value_width = elf_class.string_width
+        value_width = elf_class.address_string_width
         print(f"\nSymbol table '{section_name}' contains {len(symbols)} entries:")
         print(f'   Num: {"   Value":{value_width}}  Size Type    Bind   Vis      Ndx Name')
         name_section = strtab if section.type == elf.SectionType.SYMTAB else dynstr
