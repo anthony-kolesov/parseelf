@@ -26,10 +26,10 @@ __all__ = [
 import collections.abc
 import dataclasses
 from enum import Enum, IntFlag
-from typing import BinaryIO, Iterator
+from typing import BinaryIO, get_type_hints, Iterable, Iterator
 
 import header
-from header import ElfClass
+from header import ElfClass, Field
 
 
 def _missing_enum_value(cls, value):
@@ -492,20 +492,7 @@ class ProgramHeaderFlags(IntFlag):
         ])
 
 
-# Program header has different layout (i.e. order of fields) for 32 and 64 bit
-# classes. But our code depends on the order of fields as they are declared in
-# the dataclass - it is assumed that order is the same in the dataclass and in
-# the layout in file. So we can't use single class to describe both layouts.
-# But having two classes is cumbersome as type declarations becomes cumbersome,
-# since classes are assumed to have different interfaces, yet from the
-# programming POV they are identical. Thus to simplify interfaces I declare a
-# base class with all of the same fields. Note that this class itself mustn't
-# be a dataclass, or inheriting classes would also inherit its order of fields.
-# Alternative would be to store offset in the field metadata, however it would
-# still require us storing some kind of a function in the metadata, since
-# result would depend on the ELF class value. Another alternative would be to
-# not use dataclasses, but I suspect that this would create even more code
-# duplication than the current approach, where program header is define thrice.
+@dataclasses.dataclass(frozen=True)
 class ProgramHeader:
     type: ProgramHeaderType
     flags: ProgramHeaderFlags
@@ -516,29 +503,39 @@ class ProgramHeader:
     memsz: int
     align: int
 
-
-@dataclasses.dataclass(frozen=True)
-class _ProgramHeader32(ProgramHeader):
-    type: ProgramHeaderType = dataclasses.field(metadata=header.meta(size=4))
-    offset: int = dataclasses.field(metadata=header.meta(address=True))
-    vaddr: int = dataclasses.field(metadata=header.meta(address=True))
-    paddr: int = dataclasses.field(metadata=header.meta(address=True))
-    filesz: int = dataclasses.field(metadata=header.meta(address=True))
-    memsz: int = dataclasses.field(metadata=header.meta(address=True))
-    flags: ProgramHeaderFlags = dataclasses.field(metadata=header.meta(size=4))
-    align: int = dataclasses.field(metadata=header.meta(address=True))
-
-
-@dataclasses.dataclass(frozen=True)
-class _ProgramHeader64(ProgramHeader):
-    type: ProgramHeaderType = dataclasses.field(metadata=header.meta(size=4))
-    flags: ProgramHeaderFlags = dataclasses.field(metadata=header.meta(size=4))
-    offset: int = dataclasses.field(metadata=header.meta(address=True))
-    vaddr: int = dataclasses.field(metadata=header.meta(address=True))
-    paddr: int = dataclasses.field(metadata=header.meta(address=True))
-    filesz: int = dataclasses.field(metadata=header.meta(address=True))
-    memsz: int = dataclasses.field(metadata=header.meta(address=True))
-    align: int = dataclasses.field(metadata=header.meta(address=True))
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        type = Field.with_hint('type', hints, 4)
+        flags = Field.with_hint('flags', hints, 4)
+        offset = Field.with_hint('offset', hints, elf_class.byte_size)
+        vaddr = Field.with_hint('vaddr', hints, elf_class.byte_size)
+        paddr = Field.with_hint('paddr', hints, elf_class.byte_size)
+        filesz = Field.with_hint('filesz', hints, elf_class.byte_size)
+        memsz = Field.with_hint('memsz', hints, elf_class.byte_size)
+        align = Field.with_hint('align', hints, elf_class.byte_size)
+        if elf_class == ElfClass.ELF64:
+            return (
+                type,
+                flags,
+                offset,
+                vaddr,
+                paddr,
+                filesz,
+                memsz,
+                align,
+            )
+        else:
+            return (
+                type,
+                offset,
+                vaddr,
+                paddr,
+                filesz,
+                memsz,
+                flags,
+                align,
+            )
 
 
 def read_program_headers(
@@ -548,7 +545,6 @@ def read_program_headers(
     """Read program headers from the stream and parse them.
 
     State of the stream cursor can change during the function execution."""
-    pheader_class = _ProgramHeader64 if elf_header.elf_class == ElfClass.ELF64 else _ProgramHeader32
     pheader_count = elf_header.program_header_entries
     pheader_size = elf_header.program_header_size
 
@@ -557,7 +553,7 @@ def read_program_headers(
     for cnt in range(pheader_count):
         start = pheader_size * cnt
         end = start + pheader_size
-        yield header.parse_header(data[start:end], pheader_class, elf_header.elf_class)
+        yield header.parse_struct(data[start:end], ProgramHeader, elf_header.elf_class)
 
 
 #
