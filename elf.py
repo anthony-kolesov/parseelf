@@ -655,18 +655,34 @@ class SectionFlags(IntFlag):
 
 @dataclasses.dataclass(frozen=True)
 class SectionHeader:
-    name_offset: int = dataclasses.field(metadata=header.meta(size=4))
+    name_offset: int
     """An offset to a string in the .shstrtab section with the name of this section."""
 
-    type: SectionType = dataclasses.field(metadata=header.meta(size=4))
-    flags: SectionFlags = dataclasses.field(metadata=header.meta(address=True))
-    address: int = dataclasses.field(metadata=header.meta(address=True))
-    offset: int = dataclasses.field(metadata=header.meta(address=True))
-    size: int = dataclasses.field(metadata=header.meta(address=True))
-    link: int = dataclasses.field(metadata=header.meta(size=4))
-    info: int = dataclasses.field(metadata=header.meta(size=4))
-    address_alignment: int = dataclasses.field(metadata=header.meta(address=True))
-    entry_size: int = dataclasses.field(metadata=header.meta(address=True))
+    type: SectionType
+    flags: SectionFlags
+    address: int
+    offset: int
+    size: int
+    link: int
+    info: int
+    address_alignment: int
+    entry_size: int
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        return (
+            Field.with_hint('name_offset', hints, 4),
+            Field.with_hint('type', hints, 4),
+            Field.with_hint('flags', hints, elf_class.byte_size),
+            Field.with_hint('address', hints, elf_class.byte_size),
+            Field.with_hint('offset', hints, elf_class.byte_size),
+            Field.with_hint('size', hints, elf_class.byte_size),
+            Field.with_hint('link', hints, 4),
+            Field.with_hint('info', hints, 4),
+            Field.with_hint('address_alignment', hints, elf_class.byte_size),
+            Field.with_hint('entry_size', hints, elf_class.byte_size),
+        )
 
 
 def read_section_headers(
@@ -684,7 +700,7 @@ def read_section_headers(
     for cnt in range(section_header_count):
         start = section_header_size * cnt
         end = start + section_header_size
-        yield header.parse_header(data[start:end], SectionHeader, elf_header.elf_class)
+        yield header.parse_struct(data[start:end], SectionHeader, elf_header.elf_class)
 
 
 def map_section_names(
