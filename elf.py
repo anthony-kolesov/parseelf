@@ -389,26 +389,52 @@ class ElfMachineType(Enum):
 
 @dataclasses.dataclass(frozen=True)
 class ElfHeader:
-    magic: str = dataclasses.field(metadata=header.meta(size=4))  # offset = 0
-    elf_class: ElfClass  # offset = 4
-    endiannes: Endianness  # offset = 5
-    version: int  # offset = 6
-    osabi: ElfOsAbi  # offset = 7
-    abiversion: int  # offset = 8
-    _pad1: bytes = dataclasses.field(metadata=header.meta(size=7, hidden=True))  # offset = 9
-    objectType: ElfType = dataclasses.field(metadata=header.meta(size=2))  # offset = 0x10
-    machine: ElfMachineType = dataclasses.field(metadata=header.meta(size=2))  # offset = 0x12
-    version2: int = dataclasses.field(metadata=header.meta(size=4))  # offset = 0x14
-    entry: int = dataclasses.field(metadata=header.meta(address=True))
-    program_header_offset: int = dataclasses.field(metadata=header.meta(address=True))
-    section_header_offset: int = dataclasses.field(metadata=header.meta(address=True))
-    flags: int = dataclasses.field(metadata=header.meta(size=4))
-    elf_header_size: int = dataclasses.field(metadata=header.meta(size=2))  # Size of this header.
-    program_header_size: int = dataclasses.field(metadata=header.meta(size=2))
-    program_header_entries: int = dataclasses.field(metadata=header.meta(size=2))
-    section_header_size: int = dataclasses.field(metadata=header.meta(size=2))
-    section_header_entries: int = dataclasses.field(metadata=header.meta(size=2))
-    section_header_names_index: int = dataclasses.field(metadata=header.meta(size=2))
+    magic: str
+    elf_class: ElfClass
+    endiannes: Endianness
+    version: int
+    osabi: ElfOsAbi
+    abiversion: int
+    _pad1: bytes
+    objectType: ElfType
+    machine: ElfMachineType
+    version2: int
+    entry: int
+    program_header_offset: int
+    section_header_offset: int
+    flags: int
+    elf_header_size: int  # Size of this header.
+    program_header_size: int
+    program_header_entries: int
+    section_header_size: int
+    section_header_entries: int
+    section_header_names_index: int
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        return (
+            Field.with_hint('magic', hints, 4),
+            Field.with_hint('elf_class', hints, 1),
+            Field.with_hint('endiannes', hints, 1),
+            Field.with_hint('version', hints, 1),
+            Field.with_hint('osabi', hints, 1),
+            Field.with_hint('abiversion', hints, 1),
+            Field.with_hint('_pad1', hints, 7),
+            Field.with_hint('objectType', hints, 2),
+            Field.with_hint('machine', hints, 2),
+            Field.with_hint('version2', hints, 4),
+            Field.with_hint('entry', hints, elf_class.byte_size),
+            Field.with_hint('program_header_offset', hints, elf_class.byte_size),
+            Field.with_hint('section_header_offset', hints, elf_class.byte_size),
+            Field.with_hint('flags', hints, 4),
+            Field.with_hint('elf_header_size', hints, 2),
+            Field.with_hint('program_header_size', hints, 2),
+            Field.with_hint('program_header_entries', hints, 2),
+            Field.with_hint('section_header_size', hints, 2),
+            Field.with_hint('section_header_entries', hints, 2),
+            Field.with_hint('section_header_names_index', hints, 2),
+        )
 
     @staticmethod
     def get_elf_class(header_bytes: bytes) -> ElfClass:
@@ -428,7 +454,7 @@ class ElfHeader:
         """Parse an ELF header from a given bytes from the file."""
         # ELF class is a special case needed to properly parse address fields.
         elf_class = ElfHeader.get_elf_class(header_bytes)
-        return header.parse_header(header_bytes, ElfHeader, elf_class)
+        return header.parse_struct(header_bytes, ElfHeader, elf_class)
 
     @staticmethod
     def read_elf_header(stream: BinaryIO) -> 'ElfHeader':
