@@ -6,7 +6,6 @@
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import BinaryIO, cast, Iterable, Mapping
-from sys import stdout
 
 import elf
 import header
@@ -93,6 +92,74 @@ def print_file_header(
     pr('Size of section headers', f'{elf_header.section_header_size} (bytes)')
     pr('Number of section headers', elf_header.section_header_entries)
     pr('Section header string table index', elf_header.section_header_names_index)
+
+
+def print_program_headers(
+    headers: Iterable[elf.ProgramHeader],
+    sections: Mapping[str, elf.SectionHeader],
+    elf_header: elf.ElfHeader,
+) -> None:
+    obj_type_description = (f' ({elf_header.objectType.description})' if elf_header.objectType.description else '')
+    print(f'\nElf file type is {elf_header.objectType.name}{obj_type_description}')
+    print(f'Entry point {elf_header.entry:#x}')
+    print(
+        f'There are {elf_header.program_header_entries} program headers, '
+        f'starting at offset {elf_header.program_header_offset}'
+    )
+    print("\nProgram Headers:")
+    addrw = elf_header.elf_class.string_width + 2
+    sizew = 8 if elf_header.elf_class == header.ElfClass.ELF64 else 7
+    print(
+        '  Type           Offset   '
+        f'{"VirtAddr":{addrw}} {"PhysAddr":{addrw}} {"FileSiz":{sizew}} {"MemSiz":{sizew}}'
+        ' Flg Align'
+    )
+    for ph in headers:
+        print(
+            ' ',
+            format(ph.type.name, '14'),
+            format(ph.offset, '#08x'),
+            format(ph.vaddr, f'#0{addrw}x'),
+            format(ph.paddr, f'#0{addrw}x'),
+            format(ph.filesz, f'#0{sizew}x'),
+            format(ph.memsz, f'#0{sizew}x'),
+            format(ph.flags.summary, '3'),
+            format(ph.align, '#x'),
+        )
+
+    print('\n Section to Segment mapping:')
+    print('  Segment Sections...')
+    for nr, ph in enumerate(headers):
+        shnames = (
+            name
+            for name, s in sections.items()
+            # Conditions are based on ELF_SECTION_IN_SEGMENT_1 from
+            # include/elf/internal.h, but the conditions are copied not verbatim
+            # to make implementation as simple as possible (at least for now).
+            if (
+                # PT_LOAD and similar segments only have SHF_ALLOC sections.
+                (
+                    (ph.type not in (elf.ProgramHeaderType.LOAD, elf.ProgramHeaderType.DYNAMIC))
+                    or (elf.SectionFlags.ALLOC in s.flags)
+                )
+                # Any section besides one of type SHT_NOBITS must have file offsets within the segment.
+                and (
+                    (s.type == elf.SectionType.NOBITS)
+                    or (ph.offset <= s.offset and (s.offset + s.size <= ph.offset + ph.filesz))
+                )
+                # SHF_ALLOC sections must have VMAs within the segment.
+                and (
+                     (elf.SectionFlags.ALLOC not in s.flags)
+                     or (ph.vaddr <= s.address and (s.address + s.size) <= (ph.vaddr + ph.memsz))
+                     )
+                and name
+                )
+        )
+        print(
+            f'   {nr:02}    ',
+            *shnames,
+            '',
+        )
 
 
 def print_section_headers(
@@ -191,19 +258,11 @@ if __name__ == "__main__":
         elf_file.seek(0)
         print_file_header(elf_header, elf_file.read(16))
 
-    # Now parse program headers.
-    pheaders = elf.read_program_headers(elf_file, elf_header)
-    if args.program_headers:
-        print("\n# Program headers")
-        header.format_headers_as_table(list(pheaders), stdout)
-
-    # Section headers
     section_headers = list(elf.read_section_headers(elf_file, elf_header))
     section_names = dict(elf.map_section_names(elf_file, elf_header, section_headers))
     # The line below relies on the fact that section names are in the same order as sections.
     sections = dict(zip(section_names.values(), section_headers))
-    if args.section_headers:
-        print_section_headers(sections, elf_header)
+    pheaders = list(elf.read_program_headers(elf_file, elf_header))
 
     def section_id_to_name(id: str) -> str:
         """Convert section name or number to a name.
@@ -215,11 +274,12 @@ if __name__ == "__main__":
         else:
             return id
 
-    # Symbols
+    if args.program_headers:
+        print_program_headers(pheaders, sections, elf_header)
+    if args.section_headers:
+        print_section_headers(sections, elf_header)
     if args.symbols:
         print_symbols(sections, elf_header.elf_class, elf_file)
-
-    # Strings.
     if args.string_dump:
         string_dump(
             (section_id_to_name(shid) for shid in args.string_dump),

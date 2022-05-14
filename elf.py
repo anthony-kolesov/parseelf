@@ -1,7 +1,9 @@
 # Copyright (c) 2022 Anton Kolesov
 # SPDX-License-Identifier: MIT
 
-"""Classes specific to parsing of ELF files."""
+"""Classes specific to parsing of ELF files.
+
+For documentation see http://www.sco.com/developers/gabi/latest/contents.html."""
 
 __all__ = [
     'Endianness',
@@ -461,6 +463,35 @@ class ProgramHeaderType(Enum):
         return _missing_enum_value(cls, value)
 
 
+class ProgramHeaderFlags(IntFlag):
+    EXECUTE = 0x1
+    WRITE = 0x2
+    READ = 0x4
+
+    @classmethod
+    def _missing_(cls, value):
+        # Can't add those values as class variables, as interpreter gets into
+        # some infinite recursion. And if I add them to _ignore_, then they are
+        # not available inside of the functions.
+        MASKOS = 0x0FF00000
+        MASKPROC = 0xF0000000
+        if (value & MASKOS == value) or (value & MASKPROC == value):
+            obj = int.__new__(cls)
+            obj._value_ = value
+            obj._name_ = hex(value)
+            return obj
+        return super()._missing_(value)
+
+    @property
+    def summary(self) -> str:
+        """Format string in the style of readelf -l option."""
+        return ''.join([
+            'R' if ProgramHeaderFlags.READ in self else ' ',
+            'W' if ProgramHeaderFlags.WRITE in self else ' ',
+            'E' if ProgramHeaderFlags.EXECUTE in self else ' ',
+        ])
+
+
 # Program header has different layout (i.e. order of fields) for 32 and 64 bit
 # classes. But our code depends on the order of fields as they are declared in
 # the dataclass - it is assumed that order is the same in the dataclass and in
@@ -477,7 +508,7 @@ class ProgramHeaderType(Enum):
 # duplication than the current approach, where program header is define thrice.
 class ProgramHeader:
     type: ProgramHeaderType
-    flags: int
+    flags: ProgramHeaderFlags
     offset: int
     vaddr: int
     paddr: int
@@ -494,14 +525,14 @@ class _ProgramHeader32(ProgramHeader):
     paddr: int = dataclasses.field(metadata=header.meta(address=True))
     filesz: int = dataclasses.field(metadata=header.meta(address=True))
     memsz: int = dataclasses.field(metadata=header.meta(address=True))
-    flags: int = dataclasses.field(metadata=header.meta(size=4))
+    flags: ProgramHeaderFlags = dataclasses.field(metadata=header.meta(size=4))
     align: int = dataclasses.field(metadata=header.meta(address=True))
 
 
 @dataclasses.dataclass(frozen=True)
 class _ProgramHeader64(ProgramHeader):
     type: ProgramHeaderType = dataclasses.field(metadata=header.meta(size=4))
-    flags: int = dataclasses.field(metadata=header.meta(size=4))
+    flags: ProgramHeaderFlags = dataclasses.field(metadata=header.meta(size=4))
     offset: int = dataclasses.field(metadata=header.meta(address=True))
     vaddr: int = dataclasses.field(metadata=header.meta(address=True))
     paddr: int = dataclasses.field(metadata=header.meta(address=True))
