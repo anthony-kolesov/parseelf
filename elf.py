@@ -872,7 +872,7 @@ class SymbolTableEntry:
         hints = get_type_hints(cls)
         name_offset = Field.with_hint('name_offset', hints, 4)
         value = Field.with_hint('value', hints, elf_class.address_size)
-        size = Field.with_hint('size', hints, 4)
+        size = Field.with_hint('size', hints, elf_class.address_size)
         info = Field.with_hint('info', hints, 1)
         other = Field.with_hint('other', hints, 1)
         section_index = Field.with_hint('section_index', hints, 2)
