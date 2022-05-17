@@ -5,7 +5,7 @@
 
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import BinaryIO, cast, Iterable, Mapping
+from typing import cast, Iterable
 
 import elf
 import header
@@ -95,9 +95,7 @@ def print_file_header(
 
 
 def print_program_headers(
-    headers: Iterable[elf.ProgramHeader],
-    sections: Mapping[str, elf.SectionHeader],
-    elf_header: elf.ElfHeader,
+    elf_obj: elf.Elf,
 ) -> None:
     obj_type_description = (f' ({elf_header.objectType.description})' if elf_header.objectType.description else '')
     print(f'\nElf file type is {elf_header.objectType.name}{obj_type_description}')
@@ -114,7 +112,7 @@ def print_program_headers(
         f'{"VirtAddr":{addrw}} {"PhysAddr":{addrw}} {"FileSiz":{sizew}} {"MemSiz":{sizew}}'
         ' Flg Align'
     )
-    for ph in headers:
+    for ph in elf_obj.program_headers:
         print(
             ' ',
             format(ph.type.name, '14'),
@@ -129,10 +127,10 @@ def print_program_headers(
 
     print('\n Section to Segment mapping:')
     print('  Segment Sections...')
-    for nr, ph in enumerate(headers):
+    for nr, ph in enumerate(elf_obj.program_headers):
         shnames = (
             name
-            for name, s in sections.items()
+            for _, name, s in elf_obj.sections
             # Conditions are based on ELF_SECTION_IN_SEGMENT_1 from
             # include/elf/internal.h, but the conditions are copied not verbatim
             # to make implementation as simple as possible (at least for now).
@@ -163,17 +161,14 @@ def print_program_headers(
 
 
 def print_section_headers(
-    sections: Mapping[str, elf.SectionHeader],
-    elf_header: elf.ElfHeader,
+    elf_obj: elf.Elf,
 ) -> None:
-    print(f'There are {len(sections)} section headers, '
+    print(f'There are {elf_obj.file_header.section_header_entries} section headers, '
           f'starting at offset {elf_header.section_header_offset:#x}:')
     print('\nSection Headers:')
     address_title = format('Addr', '8') if elf_header.elf_class == header.ElfClass.ELF32 else format('Address', '16')
     print(f'  [Nr] Name              Type            {address_title} Off    Size   ES Flg Lk Inf Al')
-    for nr, item in enumerate(sections.items()):
-        name = item[0]
-        section = item[1]
+    for nr, name, section in elf_obj.sections:
         print(
             f'  [{nr:2}]',
             format(name, '17'),
@@ -195,40 +190,30 @@ def print_section_headers(
 
 
 def print_symbols(
-    sections: Mapping[str, elf.SectionHeader],
-    elf_class: header.ElfClass,
-    elf_file: BinaryIO,
+    elf_obj: elf.Elf,
 ) -> None:
-    # Select SYMTAB and DYNSYM sections. Names are in .strtab and .dynstr
-    # sections respectively.
-    strtab = elf.StringTable(elf_file, sections['.strtab'])
-    if '.dynstr' in sections:
-        dynstr = elf.StringTable(elf_file, sections['.dynstr'])
-    for section_name, section in sections.items():
+    for section_num, section_name, section in elf_obj.sections:
         if section.type not in (elf.SectionType.SYMTAB, elf.SectionType.DYNSYM):
             continue
-        symbols = list(elf.read_symbols(elf_file, section, elf_class))
-        value_width = elf_class.address_string_width
-        print(f"\nSymbol table '{section_name}' contains {len(symbols)} entries:")
+        value_width = elf_obj.elf_class.address_string_width
+        print(f"\nSymbol table '{section_name}' contains {section.size // section.entry_size} entries:")
         print(f'   Num: {"   Value":{value_width}}  Size Type    Bind   Vis      Ndx Name')
-        name_section = strtab if section.type == elf.SectionType.SYMTAB else dynstr
-        for num, symbol in enumerate(symbols):
+        for symbol_num, symbol_name, symbol in elf_obj.symbols(section_num):
             print(
-                f'{num:6}:',
-                f'{symbol.value:0{value_width}x}',
-                f'{symbol.size:5}',
-                f'{symbol.type.name:7}',
-                f'{symbol.bind.name:6}',
-                f'{symbol.visibility.name:8}',
-                f'{symbol.section_index_name:>3}',
-                f'{name_section[symbol.name_offset]}',
+                format(symbol_num, '6') + ':',
+                format(symbol.value, f'0{value_width}x'),
+                format(symbol.size, '5'),
+                format(symbol.type.name, '7'),
+                format(symbol.bind.name, '6'),
+                format(symbol.visibility.name, '8'),
+                format(symbol.section_index_name, '>3'),
+                symbol_name,
             )
 
 
 def string_dump(
     sections_to_dump: Iterable[str],
-    sections: Mapping[str, elf.SectionHeader],
-    elf_file: BinaryIO,
+    elf_obj: elf.Elf,
 ) -> None:
     """Dump the content of the specified sections as strings.
 
@@ -238,11 +223,14 @@ def string_dump(
 
     :param sections_to_dump: Names of sections to dump.
     :param sections: Mapping from section names to headers."""
-    for section_name in sections_to_dump:
-        if section_name not in sections:
-            print(f"readelf: Warning: Section '{section_name}' was not dumped because it does not exist!")
+    for section_num_or_name in sections_to_dump:
+        if (not section_num_or_name.isnumeric()
+           and section_num_or_name not in elf_obj.section_names):
+            print(f"readelf: Warning: Section '{section_num_or_name}' was not dumped because it does not exist!")
             continue
-        section = sections[section_name]
+        section_num = elf_obj.section_number(section_num_or_name)
+        section_name = elf_obj.section_names[section_num]
+        section = elf_obj.section_headers[section_num]
         print(f"\nString dump of section '{section_name}':")
         for offset, s in elf.StringTable(elf_file, section):
             print(f'  [{offset:6x}]  {s}')
@@ -254,37 +242,21 @@ if __name__ == "__main__":
     args = cast(Arguments, parser.parse_args())
     elf_file = open(args.input, 'rb')
     elf_header = elf.ElfHeader.read_elf_header(elf_file)
+    elf_obj = elf.Elf(elf_file)
     if args.file_header:
         elf_file.seek(0)
-        print_file_header(elf_header, elf_file.read(16))
-
-    section_headers = list(elf.read_section_headers(elf_file, elf_header))
-    section_names = dict(elf.map_section_names(elf_file, elf_header, section_headers))
-    # The line below relies on the fact that section names are in the same order as sections.
-    sections = dict(zip(section_names.values(), section_headers))
-    pheaders = list(elf.read_program_headers(elf_file, elf_header))
-
-    def section_id_to_name(id: str) -> str:
-        """Convert section name or number to a name.
-
-        :param id: Can be either a section name or a number.
-        :returns: Name of a specified section."""
-        if id.isnumeric():
-            return list(sections.keys())[int(id)]
-        else:
-            return id
+        print_file_header(elf_obj.file_header, elf_file.read(16))
 
     if args.program_headers:
-        print_program_headers(pheaders, sections, elf_header)
+        print_program_headers(elf_obj)
     if args.section_headers:
-        print_section_headers(sections, elf_header)
+        print_section_headers(elf_obj)
     if args.symbols:
-        print_symbols(sections, elf_header.elf_class, elf_file)
+        print_symbols(elf_obj)
     if args.string_dump:
         string_dump(
-            (section_id_to_name(shid) for shid in args.string_dump),
-            sections,
-            elf_file,
+            args.string_dump,
+            elf_obj,
         )
 
     elf_file.close()

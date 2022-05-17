@@ -21,12 +21,16 @@ __all__ = [
     'StringTable',
     'SymbolTableEntry',
     'read_symbols',
+    'Section',
+    'Symbol',
+    'Elf',
+    'read_table_section',
 ]
 
 import collections.abc
 import dataclasses
-from enum import Enum, IntFlag
-from typing import BinaryIO, get_type_hints, Iterable, Iterator
+from enum import Enum, IntEnum, IntFlag
+from typing import BinaryIO, Sequence, get_type_hints, Iterable, Iterator, NamedTuple, TypeVar
 
 import header
 from header import ElfClass, Field
@@ -932,4 +936,113 @@ def read_symbols(
     while start < len(data):
         end = start + section.entry_size
         yield header.parse_struct(data[start:end], SymbolTableEntry, elf_class)
+        start = end
+
+
+#
+# ELF container
+#
+class Section(NamedTuple):
+    number: int
+    name: str
+    header: SectionHeader
+
+
+class Symbol(NamedTuple):
+    number: int
+    name: str
+    entry: SymbolTableEntry
+
+
+class Elf:
+    def __init__(self, stream: BinaryIO) -> None:
+        self.__stream = stream
+        self.file_header = ElfHeader.read_elf_header(stream)
+        # In theory we could have done a lazy read for those sections, but in
+        # practice I see little reason to complicate the code - the only
+        # scenario when program and section headers are not needed is when only
+        # the file header is printed.
+        self.program_headers = tuple(read_program_headers(stream, self.file_header))
+        self.section_headers = tuple(read_section_headers(stream, self.file_header))
+
+        # Sections names. I wander how realistic it is to have a file without
+        # such section? Anyway, though, this library is not supposed to cover
+        # every possible case.
+        name_table = StringTable(
+            stream,
+            self.section_headers[self.file_header.section_header_names_index],
+        )
+        self.section_names = tuple(name_table[s.name_offset] for s in self.section_headers)
+
+    file_header: ElfHeader
+    program_headers: Sequence[ProgramHeader]
+    section_headers: Sequence[SectionHeader]
+    section_names: Sequence[str]
+
+    @property
+    def sections(self) -> Iterable[Section]:
+        return (Section(nr, n, h) for nr, n, h in zip(
+            range(len(self.section_headers)),
+            self.section_names,
+            self.section_headers,
+        ))
+
+    @property
+    def elf_class(self) -> ElfClass:
+        return self.file_header.elf_class
+
+    def section_number(self, section_name_or_num: str) -> int:
+        """Convert section name or number to a number.
+
+        :param section_name_or_num: Can be either a section name or a number.
+        :returns: The number of the specified section."""
+        if section_name_or_num.isnumeric():
+            return int(section_name_or_num)
+        for num, s in enumerate(self.section_names):
+            if s == section_name_or_num:
+                return num
+        raise ValueError(f'Unknown section name `{section_name_or_num}`')
+
+    def strings(self, section_number: int) -> StringTable:
+        return StringTable(self.__stream, self.section_headers[section_number])
+
+    def symbols(self, section_number: int) -> Iterable[Symbol]:
+        section = self.section_headers[section_number]
+        name_section = self.section_headers[section.link]
+        name_table = StringTable(self.__stream, name_section)
+        syms = read_table_section(
+            self.__stream,
+            section,
+            SymbolTableEntry,
+            self.elf_class,
+        )
+        for num, symbol in enumerate(syms):
+            yield Symbol(num, name_table[symbol.name_offset], symbol)
+
+
+_T_struct = TypeVar('_T_struct', bound=header.Struct)
+
+
+def read_table_section(
+    stream: BinaryIO,
+    section: SectionHeader,
+    entity_type: type[_T_struct],
+    elf_class: ElfClass,
+) -> Iterator[_T_struct]:
+    """Read the section of some strcutured entities of fixed size.
+
+    This function only works for sections with non-zero entity size."""
+    # Read the section.
+    stream.seek(section.offset)
+    data = stream.read(section.size)
+
+    # Validate entity size
+    assert section.entry_size != 0
+    assert section.entry_size == sum(f.size for f in entity_type.get_layout(elf_class))
+    assert section.size % section.entry_size == 0
+
+    start = 0
+    while start < len(data):
+        end = start + section.entry_size
+        yield header.parse_struct(data[start:end], entity_type, elf_class)
         start = end
