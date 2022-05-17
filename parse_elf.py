@@ -17,6 +17,7 @@ class Arguments:
     program_headers: bool
     section_headers: bool
     symbols: bool
+    relocations: bool
     string_dump: list[str]
 
 
@@ -43,6 +44,11 @@ def create_parser() -> ArgumentParser:
     parser.add_argument(
         '--symbols', '--syms', '-s',
         help='Display the symbol table',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--relocations', '--relocs', '-r',
+        help='Display the relocations (if present)',
         action='store_true',
     )
     parser.add_argument(
@@ -211,6 +217,52 @@ def print_symbols(
             )
 
 
+def print_relocations(
+    elf_obj: elf.Elf,
+) -> None:
+    for section_num, section_name, section in elf_obj.sections:
+        if section.type not in (elf.SectionType.REL, elf.SectionType.RELA):
+            continue
+
+        print(f"\nRelocation section '{section_name}' at offset {section.offset:#x} "
+              f"contains {section.size // section.entry_size} entries:")
+        # The relocations header tries to center the text, but it doesn't
+        # really center it! Header are off-center for 64bit values. As a result
+        # trying to represent it with a single string and multiple formats
+        # would look ridiculous.
+        if elf_obj.elf_class == header.ElfClass.ELF32:
+            print(" Offset     Info    Type                Sym. Value  Symbol's Name", end='')
+        else:
+            print("    Offset             Info             Type               Symbol's Value  Symbol's Name", end='')
+        print(' + Addend' if section.type == elf.SectionType.RELA else '')
+
+        for r, symbol in elf_obj.relocations(section_num):
+            type_name = elf_obj.relocation_type(r).name
+
+            print(
+                format(r.offset, elf_obj.elf_class.address_format),
+                '',
+                format(r.get_info(elf_obj.elf_class), elf_obj.elf_class.address_format),
+                format(type_name, '22'),
+                end='',
+            )
+
+            if symbol:
+                symbol_value = ' ' + format(symbol.entry.value, elf_obj.elf_class.address_format)
+                symbol_w_addend = ' ' + symbol.name
+                if elf_obj.elf_class == header.ElfClass.ELF32:
+                    symbol_w_addend = '  ' + symbol_w_addend
+                if section.type == elf.SectionType.RELA:
+                    symbol_w_addend += f' + {getattr(r, "addend", 0):x}'
+            else:
+                if section.type == elf.SectionType.RELA:
+                    symbol_value = format('', str(elf_obj.elf_class.address_string_width + 1))
+                else:
+                    symbol_value = ''
+                symbol_w_addend = f'   {getattr(r, "addend", 0):x}' if section.type == elf.SectionType.RELA else ''
+            print(symbol_value + symbol_w_addend)
+
+
 def string_dump(
     sections_to_dump: Iterable[str],
     elf_obj: elf.Elf,
@@ -253,6 +305,8 @@ if __name__ == "__main__":
         print_section_headers(elf_obj)
     if args.symbols:
         print_symbols(elf_obj)
+    if args.relocations:
+        print_relocations(elf_obj)
     if args.string_dump:
         string_dump(
             args.string_dump,

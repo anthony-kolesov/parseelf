@@ -900,6 +900,135 @@ class SymbolTableEntry:
 
 
 #
+# Relocations
+#
+@dataclasses.dataclass(frozen=True)
+class RelocationEntry:
+    offset: int
+    type: int
+    symbol_index: int
+
+    def get_info(self, elf_class: ElfClass) -> int:
+        if elf_class == ElfClass.ELF64:
+            return (self.symbol_index << 32) + self.type
+        else:
+            return (self.symbol_index << 8) + self.type
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        # This approach surely will not work for big endian targets, because
+        # offset is the least significant byte of `info`, so it's location
+        # changes depending on the endianness.
+        offset = Field.with_hint('offset', hints, elf_class.address_size)
+        if elf_class == ElfClass.ELF64:
+            return (
+                offset,
+                Field.with_hint('type', hints, 4),
+                Field.with_hint('symbol_index', hints, 4),
+            )
+        else:
+            return (
+                offset,
+                Field.with_hint('type', hints, 1),
+                Field.with_hint('symbol_index', hints, 3),
+            )
+
+
+@dataclasses.dataclass(frozen=True)
+class RelocationEntryWithAddend(RelocationEntry):
+    addend: int
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        return (
+            *super().get_layout(elf_class),
+            Field.with_hint('addend', hints, elf_class.address_size),
+        )
+
+
+class RelocationTypeI386(IntEnum):
+    R_386_NONE = 0
+    R_386_32 = 1
+    R_386_PC32 = 2
+    R_386_GOT32 = 3
+    R_386_PLT32 = 4
+    R_386_COPY = 5
+    R_386_GLOB_DAT = 6
+    R_386_JUMP_SLOT = 7
+    R_386_RELATIVE = 8
+    R_386_GOTOFF = 9
+    R_386_GOTPC = 10
+    R_386_TLS_TPOFF = 14
+    R_386_TLS_IE = 15
+    R_386_TLS_GOTIE = 16
+    R_386_TLS_LE = 17
+    R_386_TLS_GD = 18
+    R_386_TLS_LDM = 19
+    R_386_16 = 20
+    R_386_PC16 = 21
+    R_386_8 = 22
+    R_386_PC8 = 23
+    R_386_TLS_GD_32 = 24
+    R_386_TLS_GD_PUSH = 25
+    R_386_TLS_GD_CALL = 26
+    R_386_TLS_GD_POP = 27
+    R_386_TLS_LDM_32 = 28
+    R_386_TLS_LDM_PUSH = 29
+    R_386_TLS_LDM_CALL = 30
+    R_386_TLS_LDM_POP = 31
+    R_386_TLS_LDO_32 = 32
+    R_386_TLS_IE_32 = 33
+    R_386_TLS_LE_32 = 34
+    R_386_TLS_DTPMOD32 = 35
+    R_386_TLS_DTPOFF32 = 36
+    R_386_TLS_TPOFF32 = 37
+    R_386_SIZE32 = 38
+    R_386_TLS_GOTDESC = 39
+    R_386_TLS_DESC_CALL = 40
+    R_386_TLS_DESC = 41
+    R_386_IRELATIVE = 42
+
+
+class RelocationTypeAmd64(IntEnum):
+    # Comes from https://www.uclibc.org/docs/psABI-x86_64.pdf
+    R_X86_64_NONE = 0
+    R_X86_64_64 = 1
+    R_X86_64_PC32 = 2
+    R_X86_64_GOT32 = 3
+    R_X86_64_PLT32 = 4
+    R_X86_64_COPY = 5
+    R_X86_64_GLOB_DAT = 6
+    R_X86_64_JUMP_SLOT = 7
+    R_X86_64_RELATIVE = 8
+    R_X86_64_GOTPCREL = 9
+    R_X86_64_32 = 10
+    R_X86_64_32S = 11
+    R_X86_64_16 = 12
+    R_X86_64_PC16 = 13
+    R_X86_64_8 = 14
+    R_X86_64_PC8 = 15
+    R_X86_64_DTPMOD64 = 16
+    R_X86_64_DTPOFF64 = 17
+    R_X86_64_TPOFF64 = 18
+    R_X86_64_TLSGD = 19
+    R_X86_64_TLSLD = 20
+    R_X86_64_DTPOFF32 = 21
+    R_X86_64_GOTTPOFF = 22
+    R_X86_64_TPOFF32 = 23
+    R_X86_64_PC64 = 24
+    R_X86_64_GOTOFF64 = 25
+    R_X86_64_GOTPC32 = 26
+    R_X86_64_SIZE32 = 32
+    R_X86_64_SIZE64 = 33
+    R_X86_64_GOTPC32_TLSDESC = 34
+    R_X86_64_TLSDESC_CALL = 35
+    R_X86_64_TLSDESC = 36
+    R_X86_64_IRELATIVE = 37
+
+
+#
 # ELF container
 #
 class Section(NamedTuple):
@@ -912,6 +1041,11 @@ class Symbol(NamedTuple):
     number: int
     name: str
     entry: SymbolTableEntry
+
+
+class Relocation(NamedTuple):
+    relocation: RelocationEntry | RelocationEntryWithAddend
+    symbol: Symbol | None
 
 
 class Elf:
@@ -978,6 +1112,37 @@ class Elf:
         )
         for num, symbol in enumerate(syms):
             yield Symbol(num, name_table[symbol.name_offset], symbol)
+
+    def relocations(self, section_number: int) -> Iterable[Relocation]:
+        section = self.section_headers[section_number]
+        assert section.type in (SectionType.REL, SectionType.RELA)
+        rtype = RelocationEntry if section.type == SectionType.REL else RelocationEntryWithAddend
+        symbols = list(self.symbols(section.link)) if section.link else None
+
+        def get_symbol(index: int) -> Symbol | None:
+            if symbols and index:
+                return symbols[index]
+            return None
+
+        relocations: Iterable[RelocationEntry] = read_table_section(
+            self.__stream,
+            section,
+            rtype,
+            self.elf_class,
+        )
+        yield from (Relocation(reloc, get_symbol(reloc.symbol_index)) for reloc in relocations)
+
+    def relocation_type(self, rel: RelocationEntry) -> IntEnum:
+        """Return a machine-specific relocation type value."""
+        rel_types = {
+            ElfMachineType.EM_386: RelocationTypeI386,
+        }
+        rela_types = {
+            ElfMachineType.EM_X86_64: RelocationTypeAmd64,
+        }
+        if isinstance(rel, RelocationEntryWithAddend):
+            return rela_types[self.file_header.machine](rel.type)
+        return rel_types[self.file_header.machine](rel.type)
 
 
 _T_struct = TypeVar('_T_struct', bound=header.Struct)
