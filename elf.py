@@ -17,10 +17,8 @@ __all__ = [
     'SectionFlags',
     'SectionHeader',
     'read_section_headers',
-    'map_section_names',
     'StringTable',
     'SymbolTableEntry',
-    'read_symbols',
     'Section',
     'Symbol',
     'Elf',
@@ -750,27 +748,6 @@ def read_section_headers(
         yield header.parse_struct(data[start:end], SectionHeader, elf_header.elf_class)
 
 
-def map_section_names(
-    stream: BinaryIO,
-    elf_header: ElfHeader,
-    sections: list[SectionHeader],
-) -> Iterator[tuple[int, str]]:
-    """Map section name offsets to names themself.
-
-    Returns an iterator for tuples, where first item is the section name
-    offset, and second is the section name itself. The section name can be
-    matched with a section object either by index or by the section name
-    offset."""
-    # Names are in the .shstrtab section.
-    shstrtab_section = sections[elf_header.section_header_names_index]
-    # Seek to the .shstrtab section and read it.
-    stream.seek(shstrtab_section.offset)
-    data = stream.read(shstrtab_section.size)
-    for section in sections:
-        end = data.find(b'\x00', section.name_offset)
-        yield section.name_offset, data[section.name_offset:end].decode('ascii')
-
-
 #
 # String table
 #
@@ -920,23 +897,6 @@ class SymbolTableEntry:
         elif self.section_index == 0xfff2:
             return 'COMMON'
         return str(self.section_index)
-
-
-def read_symbols(
-    stream: BinaryIO,
-    section: SectionHeader,
-    elf_class: ElfClass,
-) -> Iterator[SymbolTableEntry]:
-    """Read the symbol table entries from the given section."""
-    # Read the section.
-    stream.seek(section.offset)
-    data = stream.read(section.size)
-    assert section.size % section.entry_size == 0
-    start = 0
-    while start < len(data):
-        end = start + section.entry_size
-        yield header.parse_struct(data[start:end], SymbolTableEntry, elf_class)
-        start = end
 
 
 #
