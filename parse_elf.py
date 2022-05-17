@@ -230,8 +230,9 @@ def print_relocations(
         if section.type not in (elf.SectionType.REL, elf.SectionType.RELA):
             continue
 
+        relocs_count = section.size // section.entry_size
         print(f"\nRelocation section '{section_name}' at offset {section.offset:#x} "
-              f"contains {section.size // section.entry_size} entries:")
+              f"contains {relocs_count} entr{'ies' if relocs_count != 1 else 'y'}:")
         # The relocations header tries to center the text, but it doesn't
         # really center it! Header are off-center for 64bit values. As a result
         # trying to represent it with a single string and multiple formats
