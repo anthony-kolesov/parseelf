@@ -130,6 +130,12 @@ def print_program_headers(
             format(ph.flags.summary, '3'),
             format(ph.align, '#x'),
         )
+        if ph.type == elf.ProgramHeaderType.INTERP:
+            interp_bytes = elf_obj.read(ph.offset, ph.filesz)
+            # This is null-terminated string.
+            assert interp_bytes[-1] == 0
+            interp = interp_bytes[:-1].decode('ascii')
+            print(f'      [Requesting program interpreter: {interp}]')
 
     print('\n Section to Segment mapping:')
     print('  Segment Sections...')

@@ -1144,6 +1144,16 @@ class Elf:
             return rela_types[self.file_header.machine](rel.type)
         return rel_types[self.file_header.machine](rel.type)
 
+    def read(self, offset: int, size: int) -> bytes:
+        """Return the content of the file at specified offset."""
+        self.__stream.seek(offset)
+        return self.__stream.read(size)
+
+    def section_content(self, section_number: int) -> bytes:
+        """Return content of the specified section as bytes."""
+        section = self.section_headers[section_number]
+        return self.read(section.offset, section.size)
+
 
 _T_struct = TypeVar('_T_struct', bound=header.Struct)
 
