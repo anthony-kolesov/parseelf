@@ -18,6 +18,7 @@ class Arguments:
     section_headers: bool
     symbols: bool
     relocations: bool
+    dynamic: bool
     string_dump: list[str]
 
 
@@ -49,6 +50,11 @@ def create_parser() -> ArgumentParser:
     parser.add_argument(
         '--relocations', '--relocs', '-r',
         help='Display the relocations (if present)',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--dynamic', '-d',
+        help='Display the dynamic section (if present)',
         action='store_true',
     )
     parser.add_argument(
@@ -270,6 +276,74 @@ def print_relocations(
             print(symbol_value + symbol_w_addend)
 
 
+def print_dynamic_info(elf_obj: elf.Elf) -> None:
+    # Dynamic section can contain several NULLs at the end, so we can't rely on
+    # section size and section entity size to figure out amount of entries.
+    # In theory it would be even better to use program header entries instead of
+    # section entries.
+
+    dynamic_section = next(elf_obj.sections_of_type(elf.SectionType.DYNAMIC), None)
+    if dynamic_section is None:
+        return
+
+    entries = list(elf_obj.dynamic_info)
+    print(f'\nDynamic section at offset {dynamic_section.header.offset:#x} contains {len(entries)} entries:')
+    print('  Tag        Type                         Name/Value')
+
+    # Print formats are defined here instead of being defined on the
+    # DynamicTagType, mostly because it is because it is a presentation-specific
+    # information, and also adding it to enum - custom print function value for
+    # each value could be quite complicated.
+    hex_format = {
+        elf.DynamicEntryTag.NULL,
+        elf.DynamicEntryTag.PLTGOT,
+        elf.DynamicEntryTag.STRTAB,
+        elf.DynamicEntryTag.SYMTAB,
+        elf.DynamicEntryTag.RELA,
+        elf.DynamicEntryTag.INIT,
+        elf.DynamicEntryTag.FINI,
+        elf.DynamicEntryTag.DEBUG,
+        elf.DynamicEntryTag.JMPREL,
+        elf.DynamicEntryTag.REL,
+        elf.DynamicEntryTag.INIT_ARRAY,
+        elf.DynamicEntryTag.FINI_ARRAY,
+        elf.DynamicEntryTag.GNU_HASH,
+        elf.DynamicEntryTag.VERSYM,
+        elf.DynamicEntryTag.VERNEED,
+    }
+    bytes_format = {
+        elf.DynamicEntryTag.PLTRELSZ,
+        elf.DynamicEntryTag.RELASZ,
+        elf.DynamicEntryTag.RELAENT,
+        elf.DynamicEntryTag.STRSZ,
+        elf.DynamicEntryTag.SYMENT,
+        elf.DynamicEntryTag.RELSZ,
+        elf.DynamicEntryTag.RELENT,
+        elf.DynamicEntryTag.INIT_ARRAYSZ,
+        elf.DynamicEntryTag.FINI_ARRAYSZ,
+    }
+
+    for dyn_entry in entries:
+        if dyn_entry.tag in hex_format:
+            formatted_value = format(dyn_entry.value, '#x')
+        elif dyn_entry.tag in bytes_format:
+            formatted_value = f'{dyn_entry.value} (bytes)'
+        elif dyn_entry.tag == elf.DynamicEntryTag.FLAGS:
+            formatted_value = str(elf.DynamicEntryFlags(dyn_entry.value))
+        elif dyn_entry.tag == elf.DynamicEntryTag.FLAGS_1:
+            formatted_value = 'Flags: ' + str(elf.DynamicEntryFlags1(dyn_entry.value))
+        elif dyn_entry.tag == elf.DynamicEntryTag.PLTREL:
+            formatted_value = elf.DynamicEntryTag(dyn_entry.value).name
+        else:
+            formatted_value = str(dyn_entry.value)
+        print(
+            '',
+            format(dyn_entry.tag.value, elf_obj.elf_class.address_xformat),
+            format(f'({dyn_entry.tag.name})', str(36 - elf_obj.elf_class.address_string_width)),
+            formatted_value,
+        )
+
+
 def string_dump(
     sections_to_dump: Iterable[str],
     elf_obj: elf.Elf,
@@ -314,6 +388,8 @@ if __name__ == "__main__":
         print_symbols(elf_obj)
     if args.relocations:
         print_relocations(elf_obj)
+    if args.dynamic:
+        print_dynamic_info(elf_obj)
     if args.string_dump:
         string_dump(
             args.string_dump,

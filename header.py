@@ -24,14 +24,17 @@ class ElfClass(Enum):
     address_size: int
     """Amount of bytes needed to represent address for this ELF class."""
     address_string_width: int
-    "Amount of characters needed to represent the address in hex format."""
+    """Amount of characters needed to represent the address in hex format."""
     address_format: str
-    "The string format to represent the address (without `0x`)."""
+    """The string format to represent the address (without `0x`)."""
+    address_xformat: str
+    """The string format to represent the address with `0x`."""
 
     def __init__(self, value: int) -> None:
         self.address_size = 4 * value
         self.address_string_width = self.address_size * 2
         self.address_format = f'0{self.address_string_width}x'
+        self.address_xformat = f'#0{self.address_string_width+2}x'
 
 
 @dataclasses.dataclass(frozen=True)

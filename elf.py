@@ -28,7 +28,7 @@ __all__ = [
 import collections.abc
 import dataclasses
 from enum import Enum, IntEnum, IntFlag
-from typing import BinaryIO, Sequence, get_type_hints, Iterable, Iterator, NamedTuple, TypeVar
+from typing import BinaryIO, cast, get_type_hints, Iterable, Iterator, NamedTuple, Sequence, TypeVar
 
 import header
 from header import ElfClass, Field
@@ -1029,6 +1029,135 @@ class RelocationTypeAmd64(IntEnum):
 
 
 #
+# Dynamic
+#
+class DynamicEntryFlags(IntFlag):
+    ORIGIN = 0x1
+    SYMBOLIC = 0x2
+    TEXTREL = 0x4
+    BIND_NOW = 0x8
+    STATIC_TLS = 0x10
+
+    def __str__(self) -> str:
+        result: list[str] = []
+        vals = DynamicEntryFlags._value2member_map_.values()
+        for value in vals:
+            if cast(DynamicEntryFlags, value) in self and value.name:
+                result.append(value.name)
+        return ' '.join(result)
+
+
+class DynamicEntryFlags1(IntFlag):
+    NOW = 0x00000001
+    GLOBAL = 0x00000002
+    GROUP = 0x00000004
+    NODELETE = 0x00000008
+    LOADFLTR = 0x00000010
+    INITFIRST = 0x00000020
+    NOOPEN = 0x00000040
+    ORIGIN = 0x00000080
+    DIRECT = 0x00000100
+    TRANS = 0x00000200
+    INTERPOSE = 0x00000400
+    NODEFLIB = 0x00000800
+    NODUMP = 0x00001000
+    CONFALT = 0x00002000
+    ENDFILTEE = 0x00004000
+    DISPRELDNE = 0x00008000
+    DISPRELPND = 0x00010000
+    NODIRECT = 0x00020000
+    IGNMULDEF = 0x00040000
+    NOKSYMS = 0x00080000
+    NOHDR = 0x00100000
+    EDITED = 0x00200000
+    NORELOC = 0x00400000
+    SYMINTPOSE = 0x00800000
+    GLOBAUDIT = 0x01000000
+    SINGLETON = 0x02000000
+    STUB = 0x04000000
+    PIE = 0x08000000
+    KMOD = 0x10000000
+    WEAKFILTER = 0x20000000
+    NOCOMMON = 0x40000000
+
+    def __str__(self) -> str:
+        result: list[str] = []
+        vals = DynamicEntryFlags1._value2member_map_.values()
+        for value in vals:
+            if cast(DynamicEntryFlags1, value) in self and value.name:
+                result.append(value.name)
+        return ' '.join(result)
+
+
+class DynamicEntryTag(Enum):
+    NULL = 0
+    NEEDED = 1
+    PLTRELSZ = 2
+    PLTGOT = 3
+    HASH = 4
+    STRTAB = 5
+    SYMTAB = 6
+    RELA = 7
+    RELASZ = 8
+    RELAENT = 9
+    STRSZ = 10
+    SYMENT = 11
+    INIT = 12
+    FINI = 13
+    SONAME = 14
+    RPATH = 15
+    SYMBOLIC = 16
+    REL = 17
+    RELSZ = 18
+    RELENT = 19
+    PLTREL = 20
+    DEBUG = 21
+    TEXTREL = 22
+    JMPREL = 23
+    BIND_NOW = 24
+    INIT_ARRAY = 25
+    FINI_ARRAY = 26
+    INIT_ARRAYSZ = 27
+    FINI_ARRAYSZ = 28
+    RUNPATH = 29
+    FLAGS = 30
+    ENCODING = 32
+    PREINIT_ARRAY = 32
+    PREINIT_ARRAYSZ = 33
+    SYMTAB_SHNDX = 34
+    GNU_HASH = 0x6ffffef5
+    VERSYM = 0x6ffffff0
+    RELACOUNT = 0x6ffffff9
+    RELCOUNT = 0x6ffffffa
+    FLAGS_1 = 0x6ffffffb
+    VERNEED = 0x6ffffffe
+    VERNEEDNUM = 0x6fffffff
+
+    LOOS = 0x6000000D
+    HIOS = 0x6ffff000
+    LOPROC = 0x70000000
+    HIPROC = 0x7fffffff
+
+    @classmethod
+    def _missing_(cls, value):
+        return _missing_enum_value(cls, value)
+
+
+@dataclasses.dataclass(frozen=True)
+class DynamicEntry:
+    tag: DynamicEntryTag
+    value: int
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        return (
+            Field.with_hint('tag', hints, elf_class.address_size),
+            Field.with_hint('value', hints, elf_class.address_size),
+        )
+
+
+#
 # ELF container
 #
 class Section(NamedTuple):
@@ -1144,6 +1273,17 @@ class Elf:
             return rela_types[self.file_header.machine](rel.type)
         return rel_types[self.file_header.machine](rel.type)
 
+    @property
+    def dynamic_info(self) -> Iterator[DynamicEntry]:
+        prev: DynamicEntry | None = None
+        # Data can contain multiple NULLs in the end.
+        for section in self.sections_of_type(SectionType.DYNAMIC):
+            for e in read_table_section(self.__stream, section.header, DynamicEntry, self.elf_class):
+                if e.tag == DynamicEntryTag.NULL and prev and e.tag == prev.tag:
+                    break
+                yield e
+                prev = e
+
     def read(self, offset: int, size: int) -> bytes:
         """Return the content of the file at specified offset."""
         self.__stream.seek(offset)
@@ -1153,6 +1293,12 @@ class Elf:
         """Return content of the specified section as bytes."""
         section = self.section_headers[section_number]
         return self.read(section.offset, section.size)
+
+    def sections_of_type(self, shtype: SectionType) -> Iterator[Section]:
+        for s in self.sections:
+            if s.header.type == shtype:
+                yield s
+        return
 
 
 _T_struct = TypeVar('_T_struct', bound=header.Struct)
