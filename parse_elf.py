@@ -418,9 +418,12 @@ def _print_versym_info(
             print('   1 (*global*)   ', end='')
         else:
             library_name = versions[value].name.join(('(', ')'))
-            print(f'{value:4x} {library_name:13}', end='')
+            hidden = 'h' if versions[value].hidden else ' '
+            print(f'{value:4x}{hidden}{library_name:13}', end='')
         if index % 4 == 3:
             print()
+    if count % 4 == 3:
+        print()
 
 
 def print_version_info(

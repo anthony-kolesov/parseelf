@@ -1234,6 +1234,7 @@ class VersionNeededAux:
     name: str
     flags: VersionFlags
     version: int
+    hidden: bool
     hash: int
     offset: int
 
@@ -1387,7 +1388,15 @@ class Elf:
         while True:
             end = start + VersionNeededAuxEntry.get_struct_size(self.elf_class)
             vna = header.parse_struct(data[start:end], VersionNeededAuxEntry, self.elf_class)
-            yield VersionNeededAux(vna, names[vna.name], vna.flags, vna.other, vna.hash, start)
+            yield VersionNeededAux(
+                vna,
+                names[vna.name],
+                vna.flags,
+                vna.other & 0x7fff,
+                bool(vna.other & 0x8000),
+                vna.hash,
+                start,
+            )
             if vna.next == 0:
                 return
             start += vna.next
