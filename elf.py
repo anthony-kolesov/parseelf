@@ -1158,6 +1158,105 @@ class DynamicEntry(header.Struct):
 
 
 #
+# Verion information.
+#
+class VersionFlags(IntFlag):
+    BASE = 1
+    WEAK = 2
+    INFO = 4
+
+    def __str__(self) -> str:
+        result: list[str] = []
+        vals = VersionFlags._value2member_map_.values()
+        for value in vals:
+            if cast(VersionFlags, value) in self and value.name:
+                result.append(value.name)
+        return ' | '.join(result) if result else 'none'
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionNeededEntry(header.Struct):
+    version: int
+    """Version of structure. This value is currently set to 1."""
+    cnt: int
+    """Number of associated verneed aux array entries."""
+    file: int
+    """Offset to the file name string in the section header, in bytes."""
+    aux: int
+    """Offset to a corresponding entry in the vernaux array, in bytes."""
+    next: int
+    """Offset to the next verneed entry, in bytes."""
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        return (
+            Field.with_hint('version', hints, 2),
+            Field.with_hint('cnt', hints, 2),
+            Field.with_hint('file', hints, 4),
+            Field.with_hint('aux', hints, 4),
+            Field.with_hint('next', hints, 4),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionNeededAuxEntry(header.Struct):
+    hash: int
+    """Dependency name hash value (ELF hash function)."""
+    flags: VersionFlags
+    """Dependency information flag bitmask."""
+    other: int
+    """Object file version identifier used in the .gnu.version symbol version
+    array. Bit number 15 controls whether or not the object is hidden; if this
+    bit is set, the object cannot be used and the static linker will ignore the
+    symbol's presence in the object."""
+    name: int
+    """Offset to the dependency name string in the section header, in bytes."""
+    next: int
+    """Offset to the next vernaux entry, in bytes."""
+
+    @classmethod
+    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
+        hints = get_type_hints(cls)
+        return (
+            Field.with_hint('hash', hints, 4),
+            Field.with_hint('flags', hints, 2),
+            Field.with_hint('other', hints, 2),
+            Field.with_hint('name', hints, 4),
+            Field.with_hint('next', hints, 4),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionNeededAux:
+    raw_entry: VersionNeededAuxEntry
+    """Raw data entry."""
+    name: str
+    flags: VersionFlags
+    version: int
+    hash: int
+    offset: int
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionNeeded:
+    file_entry: VersionNeededEntry
+    """Raw data entry."""
+    version: int
+    file: str
+    aux: Sequence[VersionNeededAux]
+    count: int
+    offset: int
+
+
+def version_table(entries: Iterable[VersionNeeded]) -> Iterator[tuple[int, VersionNeededAux]]:
+    """Convert a sequence of verneed entries to a mapping of version number to
+    a verneed_aux value."""
+    for vn in entries:
+        yield from ((vna.version, vna) for vna in vn.aux)
+
+
+#
 # ELF container
 #
 class Section(NamedTuple):
@@ -1283,6 +1382,40 @@ class Elf:
                     break
                 yield e
                 prev = e
+
+    def _yield_verneed_aux(self, data: bytes, start: int, names: StringTable) -> Iterator[VersionNeededAux]:
+        while True:
+            end = start + VersionNeededAuxEntry.get_struct_size(self.elf_class)
+            vna = header.parse_struct(data[start:end], VersionNeededAuxEntry, self.elf_class)
+            yield VersionNeededAux(vna, names[vna.name], vna.flags, vna.other, vna.hash, start)
+            if vna.next == 0:
+                return
+            start += vna.next
+
+    def version_needed(self) -> Iterator[VersionNeeded]:
+        # The section shall contain an array of Elfxx_Verneed structures,
+        # optionally followed by an array of Elfxx_Vernaux structures.
+        # Although formally there is no reason why those would be arrays:
+        # presence of `next` field allows this to be effectively a linked list.
+        section = next(self.sections_of_type(SectionType.VERNEED))
+        data = self.section_content(section.number)
+        names = self.strings(section.header.link)
+        start = 0
+        while True:
+            end = start + VersionNeededEntry.get_struct_size(self.elf_class)
+            entry = header.parse_struct(data[start:end], VersionNeededEntry, self.elf_class)
+            aux_start = start + entry.aux
+            yield VersionNeeded(
+                entry,
+                entry.version,
+                names[entry.file],
+                tuple(self._yield_verneed_aux(data, aux_start, names)),
+                entry.cnt,
+                start,
+            )
+            if entry.next == 0:
+                return
+            start += entry.next
 
     def read(self, offset: int, size: int) -> bytes:
         """Return the content of the file at specified offset."""

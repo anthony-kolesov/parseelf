@@ -5,7 +5,7 @@
 
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import cast, Iterable
+from typing import cast, Iterable, Mapping, Sequence
 
 import elf
 import header
@@ -19,6 +19,7 @@ class Arguments:
     symbols: bool
     relocations: bool
     dynamic: bool
+    version_info: bool
     string_dump: list[str]
 
 
@@ -55,6 +56,11 @@ def create_parser() -> ArgumentParser:
     parser.add_argument(
         '--dynamic', '-d',
         help='Display the dynamic section (if present)',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--version-info', '-V',
+        help='Display the version sections (if present)',
         action='store_true',
     )
     parser.add_argument(
@@ -355,6 +361,78 @@ def print_dynamic_info(elf_obj: elf.Elf) -> None:
         )
 
 
+def _print_verneed_info(
+    elf_obj: elf.Elf,
+    section: elf.Section,
+    verneed_entries: Sequence[elf.VersionNeeded],
+) -> None:
+    # I have no idea who designed those inconsistent printing formats in readelf.
+    def offset(value: int) -> str:
+        if value == 0:
+            return format(0, '06')
+        return format(vna.offset, '#06x')
+
+    print(f"\nVersion needs section '{section.name}' contains {entry_word(len(verneed_entries))}:")
+    print(
+        f' Addr: {section.header.address:#018x}',
+        f'Offset: {section.header.offset:#08x}',
+        f'Link: {section.header.link} ({elf_obj.section_names[section.header.link]})',
+        sep='  ',
+    )
+
+    for vn in verneed_entries:
+        print(f'  {offset(vn.offset)}: Version: {vn.version}  File: {vn.file}  Cnt: {vn.count}')
+        for vna in vn.aux:
+            print(
+                f'  {offset(vna.offset)}: ',
+                f'Name: {vna.name}',
+                f'Flags: {vna.flags}',
+                f'Version: {vna.version}',
+                sep='  ',
+            )
+
+
+def _print_versym_info(
+    elf_obj: elf.Elf,
+    section: elf.Section,
+    versions: Mapping[int, elf.VersionNeededAux]
+) -> None:
+    count = section.header.size // section.header.entry_size
+    print(f"\nVersion symbols section '{section.name}' contains {count} entries:")
+    print(
+        f' Addr: {section.header.address:#018x}',
+        f'Offset: {section.header.offset:#08x}',
+        f'Link: {section.header.link} ({elf_obj.section_names[section.header.link]})',
+        sep='  ',
+    )
+    data = elf_obj.section_content(section.number)
+    for index in range(count):
+        start_byte = index * 2 + 1
+        end_byte = index * 2 - 1 if index > 0 else None
+        value = int(bytes.hex(data[start_byte:end_byte:-1]), 16)
+        if index % 4 == 0:
+            print(f'  {index:03x}:', end='')
+        if value == 0:
+            print('   0 (*local*)    ', end='')
+        elif value == 1:
+            print('   1 (*global*)   ', end='')
+        else:
+            library_name = versions[value].name.join(('(', ')'))
+            print(f'{value:4x} {library_name:13}', end='')
+        if index % 4 == 3:
+            print()
+
+
+def print_version_info(
+    elf_obj: elf.Elf,
+) -> None:
+    verneed_entries = tuple(elf_obj.version_needed())
+    verneed_section = next(elf_obj.sections_of_type(elf.SectionType.VERNEED))
+    versym_section = next(elf_obj.sections_of_type(elf.SectionType.VERSYM))
+    _print_versym_info(elf_obj, versym_section, dict(elf.version_table(verneed_entries)))
+    _print_verneed_info(elf_obj, verneed_section, verneed_entries)
+
+
 def string_dump(
     sections_to_dump: Iterable[str],
     elf_obj: elf.Elf,
@@ -401,6 +479,8 @@ if __name__ == "__main__":
         print_relocations(elf_obj)
     if args.dynamic:
         print_dynamic_info(elf_obj)
+    if args.version_info:
+        print_version_info(elf_obj)
     if args.string_dump:
         string_dump(
             args.string_dump,
