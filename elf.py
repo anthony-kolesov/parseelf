@@ -390,7 +390,7 @@ class ElfMachineType(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class ElfHeader:
+class ElfHeader(header.Struct):
     magic: str
     elf_class: ElfClass
     endiannes: Endianness
@@ -529,7 +529,7 @@ class ProgramHeaderFlags(IntFlag):
 
 
 @dataclasses.dataclass(frozen=True)
-class ProgramHeader:
+class ProgramHeader(header.Struct):
     type: ProgramHeaderType
     flags: ProgramHeaderFlags
     offset: int
@@ -699,7 +699,7 @@ class SectionFlags(IntFlag):
 
 
 @dataclasses.dataclass(frozen=True)
-class SectionHeader:
+class SectionHeader(header.Struct):
     name_offset: int
     """An offset to a string in the .shstrtab section with the name of this section."""
 
@@ -839,7 +839,7 @@ class SymbolVisibility(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class SymbolTableEntry:
+class SymbolTableEntry(header.Struct):
     name_offset: int
     value: int
     size: int
@@ -1144,7 +1144,7 @@ class DynamicEntryTag(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class DynamicEntry:
+class DynamicEntry(header.Struct):
     tag: DynamicEntryTag
     value: int
 
@@ -1319,7 +1319,7 @@ def read_table_section(
 
     # Validate entity size
     assert section.entry_size != 0
-    assert section.entry_size == sum(f.size for f in entity_type.get_layout(elf_class))
+    assert section.entry_size == entity_type.get_struct_size(elf_class)
     assert section.size % section.entry_size == 0
 
     start = 0

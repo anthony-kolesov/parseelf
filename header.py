@@ -60,6 +60,10 @@ class Struct(Protocol):
     def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
         ...
 
+    @classmethod
+    def get_struct_size(cls, elf_class: ElfClass) -> int:
+        return sum(f.size for f in cls.get_layout(elf_class))
+
 
 _T_struct = TypeVar('_T_struct', bound=Struct)
 
