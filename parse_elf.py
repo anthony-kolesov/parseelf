@@ -290,6 +290,9 @@ def print_dynamic_info(elf_obj: elf.Elf) -> None:
     print(f'\nDynamic section at offset {dynamic_section.header.offset:#x} contains {len(entries)} entries:')
     print('  Tag        Type                         Name/Value')
 
+    # Load section with library names. Value for `NEEDED` tags is the offset to a library name.
+    library_names = elf_obj.strings(dynamic_section.header.link)
+
     # Print formats are defined here instead of being defined on the
     # DynamicTagType, mostly because it is because it is a presentation-specific
     # information, and also adding it to enum - custom print function value for
@@ -324,16 +327,18 @@ def print_dynamic_info(elf_obj: elf.Elf) -> None:
     }
 
     for dyn_entry in entries:
-        if dyn_entry.tag in hex_format:
-            formatted_value = format(dyn_entry.value, '#x')
-        elif dyn_entry.tag in bytes_format:
-            formatted_value = f'{dyn_entry.value} (bytes)'
+        if dyn_entry.tag == elf.DynamicEntryTag.NEEDED:
+            formatted_value = f'Shared library: [{library_names[dyn_entry.value]}]'
         elif dyn_entry.tag == elf.DynamicEntryTag.FLAGS:
             formatted_value = str(elf.DynamicEntryFlags(dyn_entry.value))
         elif dyn_entry.tag == elf.DynamicEntryTag.FLAGS_1:
             formatted_value = 'Flags: ' + str(elf.DynamicEntryFlags1(dyn_entry.value))
         elif dyn_entry.tag == elf.DynamicEntryTag.PLTREL:
             formatted_value = elf.DynamicEntryTag(dyn_entry.value).name
+        elif dyn_entry.tag in hex_format:
+            formatted_value = format(dyn_entry.value, '#x')
+        elif dyn_entry.tag in bytes_format:
+            formatted_value = f'{dyn_entry.value} (bytes)'
         else:
             formatted_value = str(dyn_entry.value)
         print(

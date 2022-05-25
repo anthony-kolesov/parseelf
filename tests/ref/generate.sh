@@ -11,5 +11,6 @@ do
     # $READELF -W --section-details $file &> section-details.${f}.txt
     $READELF -W --symbols $file &> symbols.${f}.txt
     $READELF -W --relocs $file &> relocs.${f}.txt
+    $READELF -W --dynamic $file &> dynamic.${f}.txt
     $READELF -W --string-dump=.dynstr --string-dump=.strtab --string-dump=.shstrtab $file &> strings.${f}.txt
 done
