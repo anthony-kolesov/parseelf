@@ -71,6 +71,12 @@ def create_parser() -> ArgumentParser:
     return parser
 
 
+def entry_word(cnt: int) -> str:
+    if cnt == 1:
+        return '1 entry'
+    return f'{cnt} entries'
+
+
 def print_file_header(
     elf_header: elf.ElfHeader,
     magic_bytes: bytes,
@@ -238,7 +244,7 @@ def print_relocations(
 
         relocs_count = section.size // section.entry_size
         print(f"\nRelocation section '{section_name}' at offset {section.offset:#x} "
-              f"contains {relocs_count} entr{'ies' if relocs_count != 1 else 'y'}:")
+              f"contains {relocs_count} {entry_word(relocs_count)}:")
         # The relocations header tries to center the text, but it doesn't
         # really center it! Header are off-center for 64bit values. As a result
         # trying to represent it with a single string and multiple formats
