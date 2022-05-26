@@ -904,7 +904,7 @@ class SymbolTableEntry(header.Struct):
 # Relocations
 #
 @dataclasses.dataclass(frozen=True)
-class RelocationEntry:
+class RelocationEntry(header.Struct):
     offset: int
     type: int
     symbol_index: int
@@ -1277,6 +1277,12 @@ class Symbol(NamedTuple):
     Available only if there is a VERSYM section corresponding to the symbol's
     section and defined version is not 0 or 1 (local and global)."""
 
+    @property
+    def full_name(self) -> str:
+        if self.version_info:
+            return f'{self.name}@{self.version_info.name}'
+        return self.name
+
 
 class Relocation(NamedTuple):
     relocation: RelocationEntry | RelocationEntryWithAddend
@@ -1359,7 +1365,13 @@ class Elf:
     def relocations(self, section_number: int) -> Iterable[Relocation]:
         section = self.section_headers[section_number]
         assert section.type in (SectionType.REL, SectionType.RELA)
-        rtype = RelocationEntry if section.type == SectionType.REL else RelocationEntryWithAddend
+        # In theory this cast is not needed, but for some reason mypy reports
+        # that rtype has type ABCMeta. This error started to appeat only after
+        # RelocationEntry started to inherit from header.Struct.
+        rtype = cast(
+            type[RelocationEntry],
+            RelocationEntry if section.type == SectionType.REL else RelocationEntryWithAddend
+        )
         symbols = list(self.symbols(section.link)) if section.link else None
 
         def get_symbol(index: int) -> Symbol | None:

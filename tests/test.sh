@@ -18,7 +18,7 @@ done
 
 for f in test1 test-x86
 do
-    for t in file-header program-headers section-headers symbols dynamic version-info strings
+    for t in file-header program-headers section-headers symbols relocs dynamic version-info strings
     do
         diff --strip-trailing-cr -uN ref/$t.$f.txt $t.$f.txt
     done
