@@ -228,7 +228,10 @@ def print_symbols(
         value_width = elf_obj.elf_class.address_string_width
         print(f"\nSymbol table '{section_name}' contains {section.size // section.entry_size} entries:")
         print(f'   Num: {"   Value":{value_width}}  Size Type    Bind   Vis      Ndx Name')
-        for symbol_num, symbol_name, symbol in elf_obj.symbols(section_num):
+        for symbol_num, symbol_name, symbol, vna in elf_obj.symbols(section_num):
+            complete_name = symbol_name
+            if vna is not None:
+                complete_name = f'{complete_name}@{vna.name} ({vna.version})'
             print(
                 format(symbol_num, '6') + ':',
                 format(symbol.value, f'0{value_width}x'),
@@ -237,7 +240,7 @@ def print_symbols(
                 format(symbol.bind.name, '6'),
                 format(symbol.visibility.name, '8'),
                 format(symbol.section_index_name, '>3'),
-                symbol_name,
+                complete_name,
             )
 
 
@@ -395,6 +398,40 @@ def _print_verneed_info(
 def _print_versym_info(
     elf_obj: elf.Elf,
     section: elf.Section,
+) -> None:
+    count = section.header.size // section.header.entry_size
+    print(f"\nVersion symbols section '{section.name}' contains {count} entries:")
+    print(
+        f' Addr: {section.header.address:#018x}',
+        f'Offset: {section.header.offset:#08x}',
+        f'Link: {section.header.link} ({elf_obj.section_names[section.header.link]})',
+        sep='  ',
+    )
+    for index, entry in enumerate(elf_obj.symbol_versions(section.number)):
+        value = entry[0]
+        vna = entry[1]
+        if index % 4 == 0:
+            print(f'  {index:03x}:', end='')
+        if vna is None:
+            if value == 0:
+                print('   0 (*local*)    ', end='')
+            elif value == 1:
+                print('   1 (*global*)   ', end='')
+            else:
+                print(f'{value:4x}{"":14}', end='')
+        else:
+            library_name = vna.name.join(('(', ')'))
+            hidden = 'h' if vna.hidden else ' '
+            print(f'{value:4x}{hidden}{library_name:13}', end='')
+        if index % 4 == 3:
+            print()
+    if count % 4 == 3:
+        print()
+
+
+def _print_versym_info_1(
+    elf_obj: elf.Elf,
+    section: elf.Section,
     versions: Mapping[int, elf.VersionNeededAux]
 ) -> None:
     count = section.header.size // section.header.entry_size
@@ -429,10 +466,10 @@ def _print_versym_info(
 def print_version_info(
     elf_obj: elf.Elf,
 ) -> None:
-    verneed_entries = tuple(elf_obj.version_needed())
+    verneed_entries = tuple(elf_obj.version_needed)
     verneed_section = next(elf_obj.sections_of_type(elf.SectionType.VERNEED))
     versym_section = next(elf_obj.sections_of_type(elf.SectionType.VERSYM))
-    _print_versym_info(elf_obj, versym_section, dict(elf.version_table(verneed_entries)))
+    _print_versym_info(elf_obj, versym_section)
     _print_verneed_info(elf_obj, verneed_section, verneed_entries)
 
 

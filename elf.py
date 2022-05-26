@@ -28,6 +28,7 @@ __all__ = [
 import collections.abc
 import dataclasses
 from enum import Enum, IntEnum, IntFlag
+import itertools
 from typing import BinaryIO, cast, get_type_hints, Iterable, Iterator, NamedTuple, Sequence, TypeVar
 
 import header
@@ -1270,6 +1271,11 @@ class Symbol(NamedTuple):
     number: int
     name: str
     entry: SymbolTableEntry
+    version_info: VersionNeededAux | None = None
+    """Optional version information for this symbol.
+
+    Available only if there is a VERSYM section corresponding to the symbol's
+    section and defined version is not 0 or 1 (local and global)."""
 
 
 class Relocation(NamedTuple):
@@ -1339,8 +1345,16 @@ class Elf:
             SymbolTableEntry,
             self.elf_class,
         )
-        for num, symbol in enumerate(syms):
-            yield Symbol(num, name_table[symbol.name_offset], symbol)
+
+        # Is there a VERSYM section that links to this section?
+        versym_sh = next((
+            s.number for s in self.sections
+            if s.header.type == SectionType.VERSYM and s.header.link == section_number
+        ), None)
+        versions = self.symbol_versions(versym_sh) if versym_sh else itertools.repeat((0, None))
+
+        for num, symbol, version_info in zip(itertools.count(), syms, versions):
+            yield Symbol(num, name_table[symbol.name_offset], symbol, version_info[1])
 
     def relocations(self, section_number: int) -> Iterable[Relocation]:
         section = self.section_headers[section_number]
@@ -1401,6 +1415,7 @@ class Elf:
                 return
             start += vna.next
 
+    @property
     def version_needed(self) -> Iterator[VersionNeeded]:
         # The section shall contain an array of Elfxx_Verneed structures,
         # optionally followed by an array of Elfxx_Vernaux structures.
@@ -1425,6 +1440,26 @@ class Elf:
             if entry.next == 0:
                 return
             start += entry.next
+
+    def symbol_versions(
+        self,
+        section_number: int,
+    ) -> Iterator[tuple[int, VersionNeededAux | None]]:
+        """Return version information for a symbol.
+
+        Returns an iterator over tuple. First item in the tuple is the version
+        information number (values stored in the versym section). Second item
+        is the related VersionNeededAux entry for this version number. The
+        second item may be none, since version values 0 and 1 has no such entry."""
+        version_info_map = dict(version_table(self.version_needed))
+        section_header = self.section_headers[section_number]
+        data = self.section_content(section_number)
+        count = section_header.size // section_header.entry_size
+        for index in range(count):
+            start_byte = index * 2 + 1
+            end_byte = index * 2 - 1 if index > 0 else None
+            value = int(bytes.hex(data[start_byte:end_byte:-1]), 16)
+            yield value, version_info_map.get(value, None)
 
     def read(self, offset: int, size: int) -> bytes:
         """Return the content of the file at specified offset."""
