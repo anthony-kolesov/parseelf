@@ -10,6 +10,7 @@ do
     $READELF -W --section-headers $file &> section-headers.${f}.txt
     # $READELF -W --section-details $file &> section-details.${f}.txt
     $READELF -W --symbols $file &> symbols.${f}.txt
+    $READELF --notes $file &> notes.${f}.txt
     $READELF -W --relocs $file &> relocs.${f}.txt
     $READELF -W --dynamic $file &> dynamic.${f}.txt
     $READELF -W --version-info $file &> version-info.${f}.txt

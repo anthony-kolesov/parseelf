@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from argparse import ArgumentParser
+from io import BytesIO
 from pathlib import Path
 from typing import cast, Iterable, Mapping, Sequence
 
@@ -17,6 +18,7 @@ class Arguments:
     program_headers: bool
     section_headers: bool
     symbols: bool
+    notes: bool
     relocations: bool
     dynamic: bool
     version_info: bool
@@ -46,6 +48,11 @@ def create_parser() -> ArgumentParser:
     parser.add_argument(
         '--symbols', '--syms', '-s',
         help='Display the symbol table',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--notes', '-n',
+        help='Display the core notes (if present)',
         action='store_true',
     )
     parser.add_argument(
@@ -242,6 +249,58 @@ def print_symbols(
                 format(symbol.section_index_name, '>3'),
                 complete_name,
             )
+
+
+def print_notes(
+    elf_obj: elf.Elf,
+) -> None:
+    # """Each note section can have it's own format."""
+    NT_GNU_ABI_TAG = 1
+    # NT_GNU_HWCAP = 2
+    NT_GNU_BUILD_ID = 3
+    # NT_GNU_GOLD_VERSION = 4
+    # NT_GNU_PROPERTY_TYPE_0 = 5
+
+    for section in elf_obj.sections_of_type(elf.SectionType.NOTE):
+        stream = BytesIO(elf_obj.section_content(section.number))
+        namesz = header.parse_int_le(stream.read(4))
+        descsz = header.parse_int_le(stream.read(4))
+        note_type = header.parse_int_le(stream.read(4))
+        name = header.parse_cstring(stream.read(header.align_up(namesz, 4)))
+
+        def print_section_info(type_name: str, details: str = '') -> None:
+            print(f'\nDisplaying notes found in: {section.name}')
+            print('  Owner                Data size \tDescription')
+            d = type_name
+            if details:
+                d = f'{d} ({details})'
+            print(f'  {name:<20} {descsz:#010x}\t{d}')
+
+        if name == 'GNU':
+            if note_type == NT_GNU_ABI_TAG:
+                print_section_info('NT_GNU_ABI_TAG', 'ABI version tag')
+                if descsz < 16:
+                    print('    <corrupt GNU_ABI_TAG>')
+                    continue
+                os = {
+                    0: 'Linux',
+                    1: 'Hurd',
+                    2: 'Solaris',
+                    3: 'FreeBSD',
+                    4: 'NetBSD',
+                    5: 'Syllable',
+                    6: 'NaCl',
+                }.get(header.parse_int_le(stream.read(4)), "Unknown")
+                major = header.parse_int_le(stream.read(4))
+                minor = header.parse_int_le(stream.read(4))
+                subminor = header.parse_int_le(stream.read(4))
+                print(f'    OS: {os}, ABI: {major}.{minor}.{subminor}')
+            elif note_type == NT_GNU_BUILD_ID:
+                print_section_info('NT_GNU_BUILD_ID', 'unique build ID bitstring')
+                build_id = stream.read(descsz)
+                print(f'    Build ID: {build_id.hex()}')
+            # Would like to support NT_GNU_PROPERTY_TYPE_0 used by GCC, but
+            # for now it looks too complicated to be worth it.
 
 
 def print_relocations(
@@ -515,6 +574,8 @@ if __name__ == "__main__":
         print_section_headers(elf_obj)
     if args.symbols:
         print_symbols(elf_obj)
+    if args.notes:
+        print_notes(elf_obj)
     if args.relocations:
         print_relocations(elf_obj)
     if args.dynamic:
