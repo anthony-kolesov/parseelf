@@ -19,8 +19,22 @@ __all__ = [
     'read_section_headers',
     'StringTable',
     'SymbolTableEntry',
+    'RelocationEntry',
+    'RelocationEntryWithAddend',
+    'RelocationTypeI386',
+    'RelocationTypeAmd64',
+    'DynamicEntryFlags',
+    'DynamicEntryFlags1',
+    'DynamicEntryTag',
+    'DynamicEntry',
+    'VersionFlags',
+    'VersionNeededEntry',
+    'VersionNeededAuxEntry',
+    'VersionNeededAux',
+    'VersionNeeded',
     'Section',
     'Symbol',
+    'Relocation',
     'Elf',
     'read_table_section',
 ]
@@ -1251,7 +1265,7 @@ class VersionNeeded:
     offset: int
 
 
-def version_table(entries: Iterable[VersionNeeded]) -> Iterator[tuple[int, VersionNeededAux]]:
+def _version_table(entries: Iterable[VersionNeeded]) -> Iterator[tuple[int, VersionNeededAux]]:
     """Convert a sequence of verneed entries to a mapping of version number to
     a verneed_aux value."""
     for vn in entries:
@@ -1463,7 +1477,7 @@ class Elf:
         information number (values stored in the versym section). Second item
         is the related VersionNeededAux entry for this version number. The
         second item may be none, since version values 0 and 1 has no such entry."""
-        version_info_map = dict(version_table(self.version_needed))
+        version_info_map = dict(_version_table(self.version_needed))
         section_header = self.section_headers[section_number]
         data = self.section_content(section_number)
         count = section_header.size // section_header.entry_size
