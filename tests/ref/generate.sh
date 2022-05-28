@@ -1,6 +1,7 @@
 #!/bin/bash
 
 READELF=readelf
+OBJDUMP=objdump
 
 for f in test1 test-x86
 do
@@ -15,4 +16,7 @@ do
     $READELF -W --dynamic $file &> dynamic.${f}.txt
     $READELF -W --version-info $file &> version-info.${f}.txt
     $READELF -W --string-dump=.dynstr --string-dump=.strtab --string-dump=.shstrtab $file &> strings.${f}.txt
+    $OBJDUMP --dwarf $file &> dwarf.${f}.txt
+    $OBJDUMP --dwarf=frames $file &> dwarf-frames.${f}.txt
+    $OBJDUMP --dwarf=frames-interp $file &> dwarf-frames-interp.${f}.txt
 done

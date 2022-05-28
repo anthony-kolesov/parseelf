@@ -15,12 +15,13 @@ do
     $PYTHON ../parse_elf.py --dynamic $file &> dynamic.${f}.txt
     $PYTHON ../parse_elf.py --version-info $file &> version-info.${f}.txt
     $PYTHON ../parse_elf.py --string-dump=.dynstr --string-dump=.strtab --string-dump=.shstrtab $file &> strings.${f}.txt
+    $PYTHON ../parse_elf.py --dwarf=frames $file &> dwarf-frames.${f}.txt
 done
 
 for f in test1 test-x86
 do
     # Not testing --notes because GNU_PROPERTY_TYPE_0 is currently not supported.
-    for t in file-header program-headers section-headers symbols relocs dynamic version-info strings
+    for t in file-header program-headers section-headers symbols relocs dynamic version-info strings dwarf-frames
     do
         diff --strip-trailing-cr -uN ref/$t.$f.txt $t.$f.txt
     done

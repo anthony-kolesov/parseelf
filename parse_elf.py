@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import cast, Iterable, Mapping, Sequence
 
+import dwarf
 import elf
 
 
@@ -22,6 +23,7 @@ class Arguments:
     dynamic: bool
     version_info: bool
     string_dump: list[str]
+    dwarf: list[str]
 
 
 def create_parser() -> ArgumentParser:
@@ -73,6 +75,12 @@ def create_parser() -> ArgumentParser:
         '--string-dump', '-p',
         metavar='NUMBER|NAME',
         help='Dump the contents of section <number|name> as strings',
+        action='append',
+    )
+    parser.add_argument(
+        '--dwarf', '--debug-dump', '-w',
+        help='Display debug information in object file',
+        choices=('frames'),
         action='append',
     )
     parser.add_argument(
@@ -558,6 +566,44 @@ def string_dump(
         print()
 
 
+def print_dwarf_frames(
+    elf_obj: elf.Elf,
+) -> None:
+    eh_frame = next((s for s in elf_obj.sections if s.name == '.eh_frame'), None)
+    if eh_frame is None:
+        return
+    print('\nContents of the .eh_frame section:\n')
+
+    stream = BytesIO(elf_obj.section_content(eh_frame.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    while cie := dwarf.CieRecord.read(sr):
+        print(f'\n{cie.offset:08x} {cie.size:{elf_obj.elf_class.address_format}} {0:08x} CIE')
+        print('  Version:'.ljust(24), cie.version)
+        print('  Augmentation:'.ljust(24), f'"{cie.augmentation}"')
+        print('  Code alignment factor:'.ljust(24), cie.code_alignment_factor)
+        print('  Data alignment factor:'.ljust(24), cie.data_alignment_factor)
+        print('  Return address column:'.ljust(24), cie.return_address_register)
+        print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex())
+
+        for fde in dwarf.FdeRecord.read(sr, cie):
+            # Meaning of pc_begin depends on CIE augmentation.
+            match cie.eh_frame_relation:
+                case dwarf.DW_EH_PE_Relation.pcrel:
+                    pc_begin = eh_frame.header.address + fde.pc_begin_offset + fde.pc_begin
+                case _:
+                    raise NotImplementedError('This type of DW_EH_PE relation is not supported.')
+
+            pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
+            pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
+            print(
+                f'\n{fde.offset:08x}',
+                format(fde.size, elf_obj.elf_class.address_format),
+                format(fde.cie_ptr, '08x'),
+                f'FDE cie={fde.cie.offset:08x}',
+                f'pc={pc_begin_str}..{pc_end_str}'
+            )
+
+
 if __name__ == "__main__":
     parser = create_parser()
     args = cast(Arguments, parser.parse_args())
@@ -587,5 +633,8 @@ if __name__ == "__main__":
             args.string_dump,
             elf_obj,
         )
+    if args.dwarf:
+        if 'frames' in args.dwarf:
+            print_dwarf_frames(elf_obj)
 
     elf_file.close()

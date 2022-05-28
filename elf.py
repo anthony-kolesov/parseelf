@@ -197,9 +197,37 @@ class DataFormat:
         A wrapper around ``read_dataclass_values`` to read just one value."""
         return next(self.read_dataclass_values(buffer, type, format))
 
+    def read_uint1(self, buffer: bytes) -> int:
+        """Parse a 1-byte unsigned integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('B'), buffer)[0]
+
+    def read_uint2(self, buffer: bytes) -> int:
+        """Parse a 2-byte unsigned integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('H'), buffer)[0]
+
     def read_uint4(self, buffer: bytes) -> int:
-        """Parse an integer from the buffer."""
+        """Parse a 4-byte unsigned integer from the buffer."""
         return struct.unpack(self.adjust_format_string('L'), buffer)[0]
+
+    def read_uint8(self, buffer: bytes) -> int:
+        """Parse a 8-byte unsigned integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('Q'), buffer)[0]
+
+    def read_sint1(self, buffer: bytes) -> int:
+        """Parse a 1-byte signed integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('b'), buffer)[0]
+
+    def read_sint2(self, buffer: bytes) -> int:
+        """Parse a 2-byte signed integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('h'), buffer)[0]
+
+    def read_sint4(self, buffer: bytes) -> int:
+        """Parse a 4-byte signed integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('l'), buffer)[0]
+
+    def read_sint8(self, buffer: bytes) -> int:
+        """Parse a 8-byte signed integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('q'), buffer)[0]
 
     def parse_cstring(self, stream: bytes, offset: int = 0) -> str:
         """Parse a zero-terminated string from bytes.
