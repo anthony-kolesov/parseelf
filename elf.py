@@ -6,6 +6,9 @@
 For documentation see http://www.sco.com/developers/gabi/latest/contents.html."""
 
 __all__ = [
+    'align_up',
+    'ElfClass',
+    'DataFormat',
     'Endianness',
     'ElfOsAbi',
     'ElfType',
@@ -43,9 +46,10 @@ import itertools
 import struct
 from typing import BinaryIO, cast, get_type_hints, Iterable, Iterator, NamedTuple, Sequence, TypeVar
 
-from header import ElfClass
 
-
+#
+# Common declarations.
+#
 def _missing_enum_value(cls, value):
     """An implementation of Enum._missing_ function that is specific to header fields.
 
@@ -60,6 +64,34 @@ def _missing_enum_value(cls, value):
     obj._value_ = value
     obj._name_ = name
     return obj
+
+
+def align_up(value: int, alignment: int) -> int:
+    """Align value up to the address alignment."""
+    div, mod = divmod(value, alignment)
+    if mod == 0:
+        return value  # Already aligned.
+    return alignment * (div + 1)
+
+
+class ElfClass(Enum):
+    ELF32 = 1
+    ELF64 = 2
+
+    address_size: int
+    """Amount of bytes needed to represent address for this ELF class."""
+    address_string_width: int
+    """Amount of characters needed to represent the address in hex format."""
+    address_format: str
+    """The string format to represent the address (without `0x`)."""
+    address_xformat: str
+    """The string format to represent the address with `0x`."""
+
+    def __init__(self, value: int) -> None:
+        self.address_size = 4 * value
+        self.address_string_width = self.address_size * 2
+        self.address_format = f'0{self.address_string_width}x'
+        self.address_xformat = f'#0{self.address_string_width+2}x'
 
 
 _T = TypeVar('_T')
@@ -164,6 +196,19 @@ class DataFormat:
 
         A wrapper around ``read_dataclass_values`` to read just one value."""
         return next(self.read_dataclass_values(buffer, type, format))
+
+    def read_uint4(self, buffer: bytes) -> int:
+        """Parse an integer from the buffer."""
+        return struct.unpack(self.adjust_format_string('L'), buffer)[0]
+
+    def parse_cstring(self, stream: bytes, offset: int = 0) -> str:
+        """Parse a zero-terminated string from bytes.
+
+        This function doesn't really depend on the target data format, it just
+        logically makes sense to group it with other functions that read data
+        from byte buffers."""
+        end = stream.find(b'\x00', offset)
+        return stream[offset:end].decode('ascii')
 
     def adjust_format_string(self, format: str) -> str:
         """Adjust specified format string to this data format.

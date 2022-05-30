@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import cast, Iterable, Mapping, Sequence
 
 import elf
-import header
 
 
 class Arguments:
@@ -137,7 +136,7 @@ def print_program_headers(
     )
     print("\nProgram Headers:")
     addrw = elf_header.elf_class.address_string_width + 2
-    sizew = 8 if elf_header.elf_class == header.ElfClass.ELF64 else 7
+    sizew = 8 if elf_header.elf_class == elf.ElfClass.ELF64 else 7
     print(
         '  Type           Offset   '
         f'{"VirtAddr":{addrw}} {"PhysAddr":{addrw}} {"FileSiz":{sizew}} {"MemSiz":{sizew}}'
@@ -203,7 +202,7 @@ def print_section_headers(
     print(f'There are {elf_obj.file_header.section_header_entries} section headers, '
           f'starting at offset {elf_header.section_header_offset:#x}:')
     print('\nSection Headers:')
-    address_title = format('Addr', '8') if elf_header.elf_class == header.ElfClass.ELF32 else format('Address', '16')
+    address_title = format('Addr', '8') if elf_header.elf_class == elf.ElfClass.ELF32 else format('Address', '16')
     print(f'  [Nr] Name              Type            {address_title} Off    Size   ES Flg Lk Inf Al')
     for nr, name, section in elf_obj.sections:
         print(
@@ -223,7 +222,7 @@ def print_section_headers(
   W (write), A (alloc), X (execute), M (merge), S (strings), I (info),
   L (link order), O (extra OS processing required), G (group), T (TLS),
   C (compressed), x (unknown), o (OS specific), E (exclude),
-  {'l (large), ' if elf_header.elf_class == header.ElfClass.ELF64 else ''}p (processor specific)""")
+  {'l (large), ' if elf_header.elf_class == elf.ElfClass.ELF64 else ''}p (processor specific)""")
 
 
 def print_symbols(
@@ -261,12 +260,13 @@ def print_notes(
     # NT_GNU_GOLD_VERSION = 4
     # NT_GNU_PROPERTY_TYPE_0 = 5
 
+    df = elf_obj.data_format
     for section in elf_obj.sections_of_type(elf.SectionType.NOTE):
         stream = BytesIO(elf_obj.section_content(section.number))
-        namesz = header.parse_int_le(stream.read(4))
-        descsz = header.parse_int_le(stream.read(4))
-        note_type = header.parse_int_le(stream.read(4))
-        name = header.parse_cstring(stream.read(header.align_up(namesz, 4)))
+        namesz = df.read_uint4(stream.read(4))
+        descsz = df.read_uint4(stream.read(4))
+        note_type = df.read_uint4(stream.read(4))
+        name = df.parse_cstring(stream.read(elf.align_up(namesz, 4)))
 
         def print_section_info(type_name: str, details: str = '') -> None:
             print(f'\nDisplaying notes found in: {section.name}')
@@ -290,10 +290,10 @@ def print_notes(
                     4: 'NetBSD',
                     5: 'Syllable',
                     6: 'NaCl',
-                }.get(header.parse_int_le(stream.read(4)), "Unknown")
-                major = header.parse_int_le(stream.read(4))
-                minor = header.parse_int_le(stream.read(4))
-                subminor = header.parse_int_le(stream.read(4))
+                }.get(df.read_uint4(stream.read(4)), "Unknown")
+                major = df.read_uint4(stream.read(4))
+                minor = df.read_uint4(stream.read(4))
+                subminor = df.read_uint4(stream.read(4))
                 print(f'    OS: {os}, ABI: {major}.{minor}.{subminor}')
             elif note_type == NT_GNU_BUILD_ID:
                 print_section_info('NT_GNU_BUILD_ID', 'unique build ID bitstring')
@@ -317,7 +317,7 @@ def print_relocations(
         # really center it! Header are off-center for 64bit values. As a result
         # trying to represent it with a single string and multiple formats
         # would look ridiculous.
-        if elf_obj.elf_class == header.ElfClass.ELF32:
+        if elf_obj.elf_class == elf.ElfClass.ELF32:
             print(" Offset     Info    Type                Sym. Value  Symbol's Name", end='')
         else:
             print("    Offset             Info             Type               Symbol's Value  Symbol's Name", end='')
@@ -337,7 +337,7 @@ def print_relocations(
             if symbol:
                 symbol_value = ' ' + format(symbol.entry.value, elf_obj.elf_class.address_format)
                 symbol_w_addend = ' ' + symbol.full_name
-                if elf_obj.elf_class == header.ElfClass.ELF32:
+                if elf_obj.elf_class == elf.ElfClass.ELF32:
                     symbol_w_addend = '  ' + symbol_w_addend
                 if section.type == elf.SectionType.RELA:
                     symbol_w_addend += f' + {getattr(r, "addend", 0):x}'
