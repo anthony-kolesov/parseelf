@@ -12,11 +12,9 @@ __all__ = [
     'ElfMachineType',
     'ElfHeader',
     'ProgramHeaderType',
-    'read_program_headers',
     'SectionType',
     'SectionFlags',
     'SectionHeader',
-    'read_section_headers',
     'StringTable',
     'SymbolTableEntry',
     'RelocationEntry',
@@ -36,17 +34,16 @@ __all__ = [
     'Symbol',
     'Relocation',
     'Elf',
-    'read_table_section',
 ]
 
 import collections.abc
 import dataclasses
 from enum import Enum, IntEnum, IntFlag
 import itertools
+import struct
 from typing import BinaryIO, cast, get_type_hints, Iterable, Iterator, NamedTuple, Sequence, TypeVar
 
-import header
-from header import ElfClass, Field
+from header import ElfClass
 
 
 def _missing_enum_value(cls, value):
@@ -65,6 +62,120 @@ def _missing_enum_value(cls, value):
     return obj
 
 
+_T = TypeVar('_T')
+
+
+@dataclasses.dataclass(frozen=True)
+class DataFormat:
+    """A class to represent combination of bitness and byte order.
+
+    Provides a facility to read data in the specified format from byte-buffers."""
+
+    bits: ElfClass
+    """An ELF class of the data format."""
+
+    byte_order: 'Endianness'
+    """A byte order of the ELF file data."""
+
+    @property
+    def pointer_format(self) -> str:
+        """Return a native-supported format for the pointer on the data format.
+
+        A helper to use for ``struct`` format strings.
+
+        :return: ``L`` for 32-bit data, ``Q`` for 64-bit data."""
+        return 'L' if self.bits == ElfClass.ELF32 else 'Q'
+
+    @property
+    def byte_order_format(self) -> str:
+        """Return a byte-order prefix for the ``struct`` format string.
+
+        :return: ``<`` for the little endian, ``>`` otherwise."""
+        return '<' if self.byte_order == Endianness.LITTLE else '>'
+
+    def read_values(
+        self,
+        buffer: bytes,
+        types: Iterable[type],
+        format: str,
+    ) -> Iterator[tuple]:
+        """Read multiple values from the buffer using the ``struct`` module.
+
+        The ``format`` argument is almost the same as the format string for
+        ``struct`` module but with a minor difference - the module uses ``P``
+        format for native pointers and this format is not supported for
+        non-native format string. This function adds support for ``P`` format as
+        a *target* architecture pointer and replaces ``P`` with a
+        correctly-sized data (4 or 8-byte unsigned). This function also always
+        prefixes the format string with a correct byte-order identifier.
+
+        :param buffer: And incomming bytes data.
+        :param types: An iterable of types to which to convert the read-out values.
+        :param format: A format string to read data from the buffer, similar to
+            ``struct`` format strings.
+
+        :return: A iterator of tuples, where each tuple consists of objects that
+            were created using the ``types`` sequence, and with arguments read
+            from the buffer."""
+
+        real_fmt = self.adjust_format_string(format)
+        # `types` can be an iterator and thus can't be iterated repeatedly.
+        types_copy = tuple(types)
+        for raw_values in struct.iter_unpack(real_fmt, buffer):
+            yield tuple(t(a) for t, a in zip(types_copy, raw_values, strict=True))
+
+    def read_dataclass_values(
+        self,
+        buffer: bytes,
+        type: type[_T],
+        format: str,
+    ) -> Iterator[_T]:
+        """Read multiple dataclass instances from the buffer.
+
+        A helper function which specializes the ``read_values`` for the case
+        where the values read out from the buffer are fields of the dataclass.
+        This function require that fields in the dataclass are in the same
+        order as in the buffer."""
+        assert dataclasses.is_dataclass(type)
+        yield from (type(*a) for a in self.read_values(
+            buffer,
+            (f.type for f in dataclasses.fields(type)),
+            format,
+        ))
+
+    def read_value(
+        self,
+        buffer: bytes,
+        types: Iterable[type],
+        format: str,
+    ) -> tuple:
+        """Read one value from the buffer using the ``struct`` module.
+
+        A wrapper around ``read_values`` to read just one value."""
+        return next(self.read_values(buffer, types, format))
+
+    def read_dataclass_value(
+        self,
+        buffer: bytes,
+        type: type[_T],
+        format: str,
+    ) -> _T:
+        """Read one dataclass instances from the buffer using the ``struct`` module.
+
+        A wrapper around ``read_dataclass_values`` to read just one value."""
+        return next(self.read_dataclass_values(buffer, type, format))
+
+    def adjust_format_string(self, format: str) -> str:
+        """Adjust specified format string to this data format.
+
+        Sets endianness and provides exact size to pointers."""
+        return self.byte_order_format + format.replace('P', self.pointer_format)
+
+    def calc_size(self, format: str) -> int:
+        """Just like ``struct.calcsize` except with support for target pointers."""
+        return struct.calcsize(self.adjust_format_string(format))
+
+
 #
 # ELF header.
 #
@@ -72,7 +183,12 @@ class Endianness(Enum):
     description: str
     "Text description of this endianness type."
 
-    def __new__(cls, value, description):
+    def __new__(cls, value, description=''):
+        # if `description` is not given a default value, then something like
+        # Endianness(1) produces a warning from mypy, but actually works in
+        # CPython. To shut up mypy I've set here a default value, even though
+        # it will never be used.
+        assert description != ''
         obj = object.__new__(cls)
         obj._value_ = value
         obj.description = description
@@ -405,14 +521,13 @@ class ElfMachineType(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class ElfHeader(header.Struct):
+class ElfHeader:
     magic: str
     elf_class: ElfClass
     endiannes: Endianness
     version: int
     osabi: ElfOsAbi
     abiversion: int
-    _pad1: bytes
     objectType: ElfType
     machine: ElfMachineType
     version2: int
@@ -427,51 +542,35 @@ class ElfHeader(header.Struct):
     section_header_entries: int
     section_header_names_index: int
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        return (
-            Field.with_hint('magic', hints, 4),
-            Field.with_hint('elf_class', hints, 1),
-            Field.with_hint('endiannes', hints, 1),
-            Field.with_hint('version', hints, 1),
-            Field.with_hint('osabi', hints, 1),
-            Field.with_hint('abiversion', hints, 1),
-            Field.with_hint('_pad1', hints, 7),
-            Field.with_hint('objectType', hints, 2),
-            Field.with_hint('machine', hints, 2),
-            Field.with_hint('version2', hints, 4),
-            Field.with_hint('entry', hints, elf_class.address_size),
-            Field.with_hint('program_header_offset', hints, elf_class.address_size),
-            Field.with_hint('section_header_offset', hints, elf_class.address_size),
-            Field.with_hint('flags', hints, 4),
-            Field.with_hint('elf_header_size', hints, 2),
-            Field.with_hint('program_header_size', hints, 2),
-            Field.with_hint('program_header_entries', hints, 2),
-            Field.with_hint('section_header_size', hints, 2),
-            Field.with_hint('section_header_entries', hints, 2),
-            Field.with_hint('section_header_names_index', hints, 2),
-        )
+    @property
+    def data_format(self) -> DataFormat:
+        """A data format specified in this header."""
+        return DataFormat(self.elf_class, self.endiannes)
 
     @staticmethod
-    def get_elf_class(header_bytes: bytes) -> ElfClass:
-        """Check ELF magic bytes and retrieve ELF class.
+    def get_data_format(header_bytes: bytes) -> DataFormat:
+        """Check ELF magic bytes and retrieve ELF class and byte order.
 
         ELF class is quite important because it affects the size of
         address-sized fields and sometimes the layout of the header, therefore
         it is parsed before the headers themself."""
-        assert len(header_bytes) >= 5
+        assert len(header_bytes) >= 6
 
         if header_bytes[:4] != bytes.fromhex('7f 45 4c 46'):
             raise ValueError('The input stream is not a valid ELF file.')
-        return ElfClass(header_bytes[4])
+        return DataFormat(ElfClass(header_bytes[4]), Endianness(header_bytes[5]))
 
     @staticmethod
     def parse_elf_header(header_bytes: bytes) -> 'ElfHeader':
         """Parse an ELF header from a given bytes from the file."""
         # ELF class is a special case needed to properly parse address fields.
-        elf_class = ElfHeader.get_elf_class(header_bytes)
-        return header.parse_struct(header_bytes, ElfHeader, elf_class)
+        df = ElfHeader.get_data_format(header_bytes)
+
+        return df.read_dataclass_value(
+            header_bytes[:64 if df.bits == ElfClass.ELF64 else 52],
+            ElfHeader,
+            'L5B7xHHLPPPL6H',
+        )
 
     @staticmethod
     def read_elf_header(stream: BinaryIO) -> 'ElfHeader':
@@ -544,7 +643,7 @@ class ProgramHeaderFlags(IntFlag):
 
 
 @dataclasses.dataclass(frozen=True)
-class ProgramHeader(header.Struct):
+class ProgramHeader:
     type: ProgramHeaderType
     flags: ProgramHeaderFlags
     offset: int
@@ -554,57 +653,27 @@ class ProgramHeader(header.Struct):
     memsz: int
     align: int
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        type = Field.with_hint('type', hints, 4)
-        flags = Field.with_hint('flags', hints, 4)
-        offset = Field.with_hint('offset', hints, elf_class.address_size)
-        vaddr = Field.with_hint('vaddr', hints, elf_class.address_size)
-        paddr = Field.with_hint('paddr', hints, elf_class.address_size)
-        filesz = Field.with_hint('filesz', hints, elf_class.address_size)
-        memsz = Field.with_hint('memsz', hints, elf_class.address_size)
-        align = Field.with_hint('align', hints, elf_class.address_size)
-        if elf_class == ElfClass.ELF64:
-            return (
-                type,
-                flags,
-                offset,
-                vaddr,
-                paddr,
-                filesz,
-                memsz,
-                align,
-            )
+    @staticmethod
+    def read(
+        buffer: bytes,
+        data_format: DataFormat,
+    ) -> Iterator['ProgramHeader']:
+        """Read the program header from the specified buffer.
+
+        The buffer must have the size exactly of the header itself."""
+        if data_format.bits == ElfClass.ELF64:
+            # Fields in the class are in order for Elf64.
+            yield from data_format.read_dataclass_values(buffer, ProgramHeader, 'LL6P')
         else:
-            return (
-                type,
-                offset,
-                vaddr,
-                paddr,
-                filesz,
-                memsz,
-                flags,
-                align,
+            # Fields in the class are not in order for Elf32.
+            hints = get_type_hints(ProgramHeader)
+            fields = ('type', 'offset', 'vaddr', 'paddr', 'filesz', 'memsz', 'flags', 'align')
+            arguments = data_format.read_values(
+                buffer,
+                (hints[f] for f in fields),
+                'L5PLP',
             )
-
-
-def read_program_headers(
-    stream: BinaryIO,
-    elf_header: ElfHeader,
-) -> Iterator[ProgramHeader]:
-    """Read program headers from the stream and parse them.
-
-    State of the stream cursor can change during the function execution."""
-    pheader_count = elf_header.program_header_entries
-    pheader_size = elf_header.program_header_size
-
-    stream.seek(elf_header.program_header_offset)
-    data = stream.read(pheader_size * pheader_count)
-    for cnt in range(pheader_count):
-        start = pheader_size * cnt
-        end = start + pheader_size
-        yield header.parse_struct(data[start:end], ProgramHeader, elf_header.elf_class)
+            yield from (ProgramHeader(a[0], a[6], a[1], a[2], a[3], a[4], a[5], a[7]) for a in arguments)
 
 
 #
@@ -714,7 +783,7 @@ class SectionFlags(IntFlag):
 
 
 @dataclasses.dataclass(frozen=True)
-class SectionHeader(header.Struct):
+class SectionHeader:
     name_offset: int
     """An offset to a string in the .shstrtab section with the name of this section."""
 
@@ -728,39 +797,13 @@ class SectionHeader(header.Struct):
     address_alignment: int
     entry_size: int
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        return (
-            Field.with_hint('name_offset', hints, 4),
-            Field.with_hint('type', hints, 4),
-            Field.with_hint('flags', hints, elf_class.address_size),
-            Field.with_hint('address', hints, elf_class.address_size),
-            Field.with_hint('offset', hints, elf_class.address_size),
-            Field.with_hint('size', hints, elf_class.address_size),
-            Field.with_hint('link', hints, 4),
-            Field.with_hint('info', hints, 4),
-            Field.with_hint('address_alignment', hints, elf_class.address_size),
-            Field.with_hint('entry_size', hints, elf_class.address_size),
-        )
-
-
-def read_section_headers(
-    stream: BinaryIO,
-    elf_header: ElfHeader,
-) -> Iterator[SectionHeader]:
-    """Read section headers from the stream and parse them.
-
-    State of the stream cursor can change during the function execution."""
-    section_header_count = elf_header.section_header_entries
-    section_header_size = elf_header.section_header_size
-
-    stream.seek(elf_header.section_header_offset)
-    data = stream.read(section_header_count * section_header_size)
-    for cnt in range(section_header_count):
-        start = section_header_size * cnt
-        end = start + section_header_size
-        yield header.parse_struct(data[start:end], SectionHeader, elf_header.elf_class)
+    @staticmethod
+    def read(
+        buffer: bytes,
+        data_format: DataFormat,
+    ) -> Iterator['SectionHeader']:
+        """Read section headers from the specified buffer."""
+        yield from data_format.read_dataclass_values(buffer, SectionHeader, 'LLPPPPLLPP')
 
 
 #
@@ -854,42 +897,34 @@ class SymbolVisibility(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class SymbolTableEntry(header.Struct):
+class SymbolTableEntry:
     name_offset: int
-    value: int
-    size: int
     info: int
     other: int
     section_index: int
+    value: int
+    size: int
     """The index of the section for which this symbol entry is defined."""
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        name_offset = Field.with_hint('name_offset', hints, 4)
-        value = Field.with_hint('value', hints, elf_class.address_size)
-        size = Field.with_hint('size', hints, elf_class.address_size)
-        info = Field.with_hint('info', hints, 1)
-        other = Field.with_hint('other', hints, 1)
-        section_index = Field.with_hint('section_index', hints, 2)
-        if elf_class == ElfClass.ELF64:
-            return (
-                name_offset,
-                info,
-                other,
-                section_index,
-                value,
-                size,
-            )
+    @staticmethod
+    def read(
+        buffer: bytes,
+        data_format: DataFormat,
+    ) -> Iterator['SymbolTableEntry']:
+        """Read the symbol table from the specified buffer."""
+        if data_format.bits == ElfClass.ELF64:
+            # Fields in the class are in order for Elf64.
+            yield from data_format.read_dataclass_values(buffer, SymbolTableEntry, 'LBBHPP')
         else:
-            return (
-                name_offset,
-                value,
-                size,
-                info,
-                other,
-                section_index,
+            # Fields in the class are not in order for Elf32.
+            hints = get_type_hints(SymbolTableEntry)
+            fields = ('name_offset', 'value', 'size', 'info', 'other', 'section_index')
+            arguments = data_format.read_values(
+                buffer,
+                (hints[f] for f in fields),
+                'LPPBBH',
             )
+            yield from (SymbolTableEntry(a[0], a[3], a[4], a[5], a[1], a[2]) for a in arguments)
 
     @property
     def bind(self) -> SymbolBind:
@@ -918,7 +953,7 @@ class SymbolTableEntry(header.Struct):
 # Relocations
 #
 @dataclasses.dataclass(frozen=True)
-class RelocationEntry(header.Struct):
+class RelocationEntry:
     offset: int
     type: int
     symbol_index: int
@@ -929,38 +964,42 @@ class RelocationEntry(header.Struct):
         else:
             return (self.symbol_index << 8) + self.type
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        # This approach surely will not work for big endian targets, because
-        # offset is the least significant byte of `info`, so it's location
-        # changes depending on the endianness.
-        offset = Field.with_hint('offset', hints, elf_class.address_size)
-        if elf_class == ElfClass.ELF64:
-            return (
-                offset,
-                Field.with_hint('type', hints, 4),
-                Field.with_hint('symbol_index', hints, 4),
-            )
+    @staticmethod
+    def read(
+        buffer: bytes,
+        data_format: DataFormat,
+    ) -> Iterator['RelocationEntry']:
+        """Read entries from the provided buffer."""
+        if data_format.bits == ElfClass.ELF64:
+            raw_values = data_format.read_values(buffer, (int, int), 'PQ')
+            yield from (RelocationEntry(a[0], a[1] & 0xFFFFFFFF, a[1] >> 32) for a in raw_values)
         else:
-            return (
-                offset,
-                Field.with_hint('type', hints, 1),
-                Field.with_hint('symbol_index', hints, 3),
-            )
+            raw_values = data_format.read_values(buffer, (int, int), 'PL')
+            yield from (RelocationEntry(a[0], a[1] & 0xFF, a[1] >> 8) for a in raw_values)
 
 
 @dataclasses.dataclass(frozen=True)
 class RelocationEntryWithAddend(RelocationEntry):
     addend: int
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        return (
-            *super().get_layout(elf_class),
-            Field.with_hint('addend', hints, elf_class.address_size),
-        )
+    @staticmethod
+    def read(
+        buffer: bytes,
+        data_format: DataFormat,
+    ) -> Iterator['RelocationEntry']:
+        """Read entries from the provided buffer."""
+        if data_format.bits == ElfClass.ELF64:
+            raw_values = data_format.read_values(buffer, (int, int, int), 'PQq')
+            yield from (
+                RelocationEntryWithAddend(a[0], a[1] & 0xFFFFFFFF, a[1] >> 32, a[2])
+                for a in raw_values
+            )
+        else:
+            raw_values = data_format.read_values(buffer, (int, int, int), 'PLl')
+            yield from (
+                RelocationEntryWithAddend(a[0], a[1] & 0xFF, a[1] >> 8, a[2])
+                for a in raw_values
+            )
 
 
 class RelocationTypeI386(IntEnum):
@@ -1159,17 +1198,17 @@ class DynamicEntryTag(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
-class DynamicEntry(header.Struct):
+class DynamicEntry:
     tag: DynamicEntryTag
     value: int
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        return (
-            Field.with_hint('tag', hints, elf_class.address_size),
-            Field.with_hint('value', hints, elf_class.address_size),
-        )
+    @staticmethod
+    def read(
+        buffer: bytes,
+        data_format: DataFormat,
+    ) -> Iterator['DynamicEntry']:
+        """Read dynamic entries from the specified buffer."""
+        yield from data_format.read_dataclass_values(buffer, DynamicEntry, 'PP')
 
 
 #
@@ -1190,7 +1229,7 @@ class VersionFlags(IntFlag):
 
 
 @dataclasses.dataclass(frozen=True)
-class VersionNeededEntry(header.Struct):
+class VersionNeededEntry:
     version: int
     """Version of structure. This value is currently set to 1."""
     cnt: int
@@ -1202,20 +1241,36 @@ class VersionNeededEntry(header.Struct):
     next: int
     """Offset to the next verneed entry, in bytes."""
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        return (
-            Field.with_hint('version', hints, 2),
-            Field.with_hint('cnt', hints, 2),
-            Field.with_hint('file', hints, 4),
-            Field.with_hint('aux', hints, 4),
-            Field.with_hint('next', hints, 4),
-        )
+    @staticmethod
+    def read(
+        buffer: bytes,
+        data_format: DataFormat,
+    ) -> Iterator[tuple[int, 'VersionNeededEntry']]:
+        """Read version needed entries from the buffer.
+
+        Returns a iteartor over tuples, where first value of the tuple is the
+        entry offset, and second value is the entry itself. Note that this
+        differs from most of the other `read` functions which don't return
+        offset, but this function has to, due to how it the result is being
+        used."""
+        format_string = 'HHLLL'
+        start = 0
+        sz = data_format.calc_size(format_string)
+        while True:
+            end = start + sz
+            entry = data_format.read_dataclass_value(
+                buffer[start:end],
+                VersionNeededEntry,
+                format_string,
+            )
+            yield start, entry
+            if entry.next == 0:
+                return
+            start += entry.next
 
 
 @dataclasses.dataclass(frozen=True)
-class VersionNeededAuxEntry(header.Struct):
+class VersionNeededAuxEntry:
     hash: int
     """Dependency name hash value (ELF hash function)."""
     flags: VersionFlags
@@ -1230,16 +1285,34 @@ class VersionNeededAuxEntry(header.Struct):
     next: int
     """Offset to the next vernaux entry, in bytes."""
 
-    @classmethod
-    def get_layout(cls, elf_class: ElfClass) -> Iterable[Field]:
-        hints = get_type_hints(cls)
-        return (
-            Field.with_hint('hash', hints, 4),
-            Field.with_hint('flags', hints, 2),
-            Field.with_hint('other', hints, 2),
-            Field.with_hint('name', hints, 4),
-            Field.with_hint('next', hints, 4),
-        )
+    @staticmethod
+    def read(
+        buffer: bytes,
+        offset: int,
+        data_format: DataFormat,
+    ) -> Iterator[tuple[int, 'VersionNeededAuxEntry']]:
+        """Read version needed aux entries from the buffer.
+
+        :param offset: An offset where to start parsing AUX entries.
+
+        :return: a iteartor over tuples, where first value of the tuple is the
+        entry offset, and second value is the entry itself. Note that this
+        differs from most of the other `read` functions which don't return
+        offset, but this function has to, due to how it the result is being
+        used."""
+        format_string = 'LHHLL'
+        sz = data_format.calc_size(format_string)
+        while True:
+            end = offset + sz
+            vna = data_format.read_dataclass_value(
+                buffer[offset:end],
+                VersionNeededAuxEntry,
+                format_string
+            )
+            yield offset, vna
+            if vna.next == 0:
+                return
+            offset += vna.next
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1304,6 +1377,36 @@ class Relocation(NamedTuple):
 
 
 class Elf:
+    @staticmethod
+    def _read_program_headers(
+        stream: BinaryIO,
+        elf_header: ElfHeader,
+    ) -> Iterator['ProgramHeader']:
+        """Read program headers from the stream and parse them.
+
+        State of the stream's cursor will change during the function execution."""
+        pheader_count = elf_header.program_header_entries
+        pheader_size = elf_header.program_header_size
+
+        stream.seek(elf_header.program_header_offset)
+        data = stream.read(pheader_size * pheader_count)
+        yield from ProgramHeader.read(data, elf_header.data_format)
+
+    @staticmethod
+    def _read_section_headers(
+        stream: BinaryIO,
+        elf_header: ElfHeader,
+    ) -> Iterator['SectionHeader']:
+        """Read section headers from the stream and parse them.
+
+        State of the stream cursor will change during the function execution."""
+        section_header_count = elf_header.section_header_entries
+        section_header_size = elf_header.section_header_size
+
+        stream.seek(elf_header.section_header_offset)
+        data = stream.read(section_header_count * section_header_size)
+        yield from SectionHeader.read(data, elf_header.data_format)
+
     def __init__(self, stream: BinaryIO) -> None:
         self.__stream = stream
         self.file_header = ElfHeader.read_elf_header(stream)
@@ -1311,8 +1414,8 @@ class Elf:
         # practice I see little reason to complicate the code - the only
         # scenario when program and section headers are not needed is when only
         # the file header is printed.
-        self.program_headers = tuple(read_program_headers(stream, self.file_header))
-        self.section_headers = tuple(read_section_headers(stream, self.file_header))
+        self.program_headers = tuple(Elf._read_program_headers(stream, self.file_header))
+        self.section_headers = tuple(Elf._read_section_headers(stream, self.file_header))
 
         # Sections names. I wander how realistic it is to have a file without
         # such section? Anyway, though, this library is not supposed to cover
@@ -1340,6 +1443,10 @@ class Elf:
     def elf_class(self) -> ElfClass:
         return self.file_header.elf_class
 
+    @property
+    def data_format(self) -> DataFormat:
+        return self.file_header.data_format
+
     def section_number(self, section_name_or_num: str) -> int:
         """Convert section name or number to a number.
 
@@ -1359,13 +1466,7 @@ class Elf:
         section = self.section_headers[section_number]
         name_section = self.section_headers[section.link]
         name_table = StringTable(self.__stream, name_section)
-        syms = read_table_section(
-            self.__stream,
-            section,
-            SymbolTableEntry,
-            self.elf_class,
-        )
-
+        syms = SymbolTableEntry.read(self.section_content(section_number), self.data_format)
         # Is there a VERSYM section that links to this section?
         versym_sh = next((
             s.number for s in self.sections
@@ -1379,11 +1480,8 @@ class Elf:
     def relocations(self, section_number: int) -> Iterable[Relocation]:
         section = self.section_headers[section_number]
         assert section.type in (SectionType.REL, SectionType.RELA)
-        # In theory this cast is not needed, but for some reason mypy reports
-        # that rtype has type ABCMeta. This error started to appeat only after
-        # RelocationEntry started to inherit from header.Struct.
-        rtype = cast(
-            type[RelocationEntry],
+        # Has to provide explicit types to avoid errors from mypy.
+        rtype: type[RelocationEntry] | type[RelocationEntryWithAddend] = (
             RelocationEntry if section.type == SectionType.REL else RelocationEntryWithAddend
         )
         symbols = list(self.symbols(section.link)) if section.link else None
@@ -1393,11 +1491,9 @@ class Elf:
                 return symbols[index]
             return None
 
-        relocations: Iterable[RelocationEntry] = read_table_section(
-            self.__stream,
-            section,
-            rtype,
-            self.elf_class,
+        relocations: Iterable[RelocationEntry] = rtype.read(
+            self.section_content(section_number),
+            self.data_format,
         )
         yield from (Relocation(reloc, get_symbol(reloc.symbol_index)) for reloc in relocations)
 
@@ -1418,28 +1514,11 @@ class Elf:
         prev: DynamicEntry | None = None
         # Data can contain multiple NULLs in the end.
         for section in self.sections_of_type(SectionType.DYNAMIC):
-            for e in read_table_section(self.__stream, section.header, DynamicEntry, self.elf_class):
+            for e in DynamicEntry.read(self.section_content(section.number), self.data_format):
                 if e.tag == DynamicEntryTag.NULL and prev and e.tag == prev.tag:
                     break
                 yield e
                 prev = e
-
-    def _yield_verneed_aux(self, data: bytes, start: int, names: StringTable) -> Iterator[VersionNeededAux]:
-        while True:
-            end = start + VersionNeededAuxEntry.get_struct_size(self.elf_class)
-            vna = header.parse_struct(data[start:end], VersionNeededAuxEntry, self.elf_class)
-            yield VersionNeededAux(
-                vna,
-                names[vna.name],
-                vna.flags,
-                vna.other & 0x7fff,
-                bool(vna.other & 0x8000),
-                vna.hash,
-                start,
-            )
-            if vna.next == 0:
-                return
-            start += vna.next
 
     @property
     def version_needed(self) -> Iterator[VersionNeeded]:
@@ -1450,22 +1529,29 @@ class Elf:
         section = next(self.sections_of_type(SectionType.VERNEED))
         data = self.section_content(section.number)
         names = self.strings(section.header.link)
-        start = 0
-        while True:
-            end = start + VersionNeededEntry.get_struct_size(self.elf_class)
-            entry = header.parse_struct(data[start:end], VersionNeededEntry, self.elf_class)
-            aux_start = start + entry.aux
-            yield VersionNeeded(
-                entry,
-                entry.version,
-                names[entry.file],
-                tuple(self._yield_verneed_aux(data, aux_start, names)),
-                entry.cnt,
-                start,
+
+        for offset, vn in VersionNeededEntry.read(data, self.data_format):
+            aux_start = offset + vn.aux
+            vna_list = tuple(
+                VersionNeededAux(
+                    vna,
+                    names[vna.name],
+                    vna.flags,
+                    vna.other & 0x7fff,
+                    bool(vna.other & 0x8000),
+                    vna.hash,
+                    aux_offset,
+                )
+                for aux_offset, vna in VersionNeededAuxEntry.read(data, aux_start, self.data_format)
             )
-            if entry.next == 0:
-                return
-            start += entry.next
+            yield VersionNeeded(
+                vn,
+                vn.version,
+                names[vn.file],
+                vna_list,
+                vn.cnt,
+                offset,
+            )
 
     def symbol_versions(
         self,
@@ -1502,31 +1588,3 @@ class Elf:
             if s.header.type == shtype:
                 yield s
         return
-
-
-_T_struct = TypeVar('_T_struct', bound=header.Struct)
-
-
-def read_table_section(
-    stream: BinaryIO,
-    section: SectionHeader,
-    entity_type: type[_T_struct],
-    elf_class: ElfClass,
-) -> Iterator[_T_struct]:
-    """Read the section of some strcutured entities of fixed size.
-
-    This function only works for sections with non-zero entity size."""
-    # Read the section.
-    stream.seek(section.offset)
-    data = stream.read(section.size)
-
-    # Validate entity size
-    assert section.entry_size != 0
-    assert section.entry_size == entity_type.get_struct_size(elf_class)
-    assert section.size % section.entry_size == 0
-
-    start = 0
-    while start < len(data):
-        end = start + section.entry_size
-        yield header.parse_struct(data[start:end], entity_type, elf_class)
-        start = end
