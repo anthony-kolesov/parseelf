@@ -585,6 +585,17 @@ def print_dwarf_frames(
         print('  Return address column:'.ljust(24), cie.return_address_register)
         print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex())
 
+        init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(cie.initial_instructions))
+        while not init_instr_sr.at_eof:
+            cfinstr, operands = dwarf.CallFrameInstruction.read(init_instr_sr)
+            print('  ' + cfinstr.objdump_print(
+                elf_obj.file_header.machine,
+                elf_obj.data_format,
+                cie,
+                0,
+                *operands
+            ))
+
         for fde in dwarf.FdeRecord.read(sr, cie):
             # Meaning of pc_begin depends on CIE augmentation.
             match cie.eh_frame_relation:
@@ -602,6 +613,27 @@ def print_dwarf_frames(
                 f'FDE cie={fde.cie.offset:08x}',
                 f'pc={pc_begin_str}..{pc_end_str}'
             )
+
+            fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
+            frame_pc = pc_begin
+            while not fde_instr_sr.at_eof:
+                fde_instr, fde_operands = dwarf.CallFrameInstruction.read(fde_instr_sr)
+                if fde_instr in (
+                    dwarf.CallFrameInstruction.DW_CFA_advance_loc,
+                    dwarf.CallFrameInstruction.DW_CFA_advance_loc1,
+                    dwarf.CallFrameInstruction.DW_CFA_advance_loc2,
+                    dwarf.CallFrameInstruction.DW_CFA_advance_loc4,
+                ):
+                    frame_pc += fde_operands[0] * cie.code_alignment_factor
+                elif fde_instr == dwarf.CallFrameInstruction.DW_CFA_set_loc:
+                    frame_pc = fde_operands[0]
+                print('  ' + fde_instr.objdump_print(
+                    elf_obj.file_header.machine,
+                    elf_obj.data_format,
+                    cie,
+                    frame_pc,
+                    *fde_operands
+                ))
 
 
 if __name__ == "__main__":
