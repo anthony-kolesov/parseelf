@@ -16,7 +16,7 @@ import builtins
 import dataclasses
 from enum import Enum
 from io import SEEK_CUR
-from typing import BinaryIO, Iterator, Optional, Sequence
+from typing import BinaryIO, Iterator, Mapping, Optional, Sequence
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
 
@@ -422,12 +422,12 @@ class FdeRecord:
     @staticmethod
     def read(
         sr: StreamReader,
-        cie: CieRecord,
+        cie_records: Mapping[int, CieRecord],
     ) -> Iterator['FdeRecord']:
         """Read FDE records from the stream.
 
         :param sr: stream reader.
-        :param cie: CIE for this FDE."""
+        :param cie_records: Mapping of section offsets to CIE records."""
         # Note that this implements Linux .eh_frame structure, which is
         # slightly different from .debug_frame.
         fde_start = sr.set_abs_position(sr.current_position)
@@ -447,6 +447,7 @@ class FdeRecord:
 
             assert cie_ptr != 0, "FDE record has a zero CIE pointer field."
             cie_abs_position = sr.current_position - 4 - cie_ptr
+            cie = cie_records[cie_abs_position]
             assert cie_abs_position == cie.offset
             # FDE always follows it's CIE so we don't have to try to search for
             # CIE using the CIE pointer - we already have CIE.

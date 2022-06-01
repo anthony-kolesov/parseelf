@@ -576,6 +576,7 @@ def print_dwarf_frames(
 
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
     while cie := dwarf.CieRecord.read(sr):
         print(f'\n{cie.offset:08x} {cie.size:{elf_obj.elf_class.address_format}} {0:08x} CIE')
         print('  Version:'.ljust(24), cie.version)
@@ -596,7 +597,8 @@ def print_dwarf_frames(
                 *operands
             ))
 
-        for fde in dwarf.FdeRecord.read(sr, cie):
+        cie_records[cie.offset] = cie
+        for fde in dwarf.FdeRecord.read(sr, cie_records):
             # Meaning of pc_begin depends on CIE augmentation.
             match cie.eh_frame_relation:
                 case dwarf.DW_EH_PE_Relation.pcrel:
