@@ -273,6 +273,8 @@ class FdeRecord:
     # into the `read` function so it could fully resolve the pc_begin to an
     # effective address, but that seems like an overcomplication, since it
     # creates a new dependency on elf module.
+    augmentation_data: bytes
+    instructions: bytes
 
     @staticmethod
     def read(
@@ -310,6 +312,18 @@ class FdeRecord:
             pc_begin = cie.eh_frame_value_type.read_value(sr)
             pc_range = cie.eh_frame_value_type.read_value(sr)
 
+            augmentation_sz = 0
+            augmentation_data = b''
+            if 'z' in cie.augmentation:
+                augmentation_sz = sr.uleb128()
+                if augmentation_sz > 0:
+                    augmentation_data = sr.bytes(augmentation_sz)
+
+            # Remember that length doesn't count the `length` fields, hence
+            # substract id_offset, instead of fde_start.
+            bytes_read = sr.current_position - id_offset
+            instr = sr.bytes(length - bytes_read)
+
             yield FdeRecord(
                 fde_start,
                 length,
@@ -318,6 +332,8 @@ class FdeRecord:
                 pc_begin_offset,
                 pc_begin,
                 pc_range,
+                augmentation_data,
+                instr,
             )
 
             fde_start = sr.set_abs_position(id_offset + length)
