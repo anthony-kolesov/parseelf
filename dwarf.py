@@ -543,8 +543,8 @@ class FdeRecord:
 _dwarf_register_names = {
     ElfMachineType.EM_X86_64: {
         0: 'rax',
-        1: 'rcx',
-        2: 'rdx',
+        1: 'rdx',
+        2: 'rcx',
         3: 'rbx',
         4: 'rsi',
         5: 'rdi',
