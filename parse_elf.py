@@ -584,7 +584,7 @@ def print_dwarf_frames(
         print('  Code alignment factor:'.ljust(24), cie.code_alignment_factor)
         print('  Data alignment factor:'.ljust(24), cie.data_alignment_factor)
         print('  Return address column:'.ljust(24), cie.return_address_register)
-        print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex())
+        print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex(bytes_per_sep=1, sep=' '))
 
         init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(cie.initial_instructions))
         while not init_instr_sr.at_eof:
@@ -600,7 +600,7 @@ def print_dwarf_frames(
         cie_records[cie.offset] = cie
         for fde in dwarf.FdeRecord.read(sr, cie_records):
             # Meaning of pc_begin depends on CIE augmentation.
-            match cie.eh_frame_relation:
+            match cie.fde_pointer_adjust:
                 case dwarf.DW_EH_PE_Relation.pcrel:
                     pc_begin = eh_frame.header.address + fde.pc_begin_offset + fde.pc_begin
                 case _:
@@ -615,6 +615,8 @@ def print_dwarf_frames(
                 f'FDE cie={fde.cie.offset:08x}',
                 f'pc={pc_begin_str}..{pc_end_str}'
             )
+            if fde.augmentation_data:
+                print('  Augmentation data:'.ljust(24), fde.augmentation_data.hex(bytes_per_sep=1, sep=' '))
 
             fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
             frame_pc = pc_begin

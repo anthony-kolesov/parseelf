@@ -324,6 +324,15 @@ class DW_EH_PE_Relation(Enum):
     aligned = 5
     "Value is aligned to an address unit sized boundary."
 
+    # It might make sense to extract "indirect" as a separate bitfield, but it
+    # will make code somewhat more complex, and it is not clear if this makes
+    # sense in this parser, at least for now.
+    indirect_pcrel = 0x9
+    indirect_textrel = 0xA
+    indirect_datarel = 0xB
+    indirect_funcrel = 0xC
+    indirect_aligned = 0xD
+
 
 @dataclasses.dataclass(frozen=True)
 class CieRecord:
@@ -337,17 +346,13 @@ class CieRecord:
     initial_instructions: bytes
     augmentation_data: bytes = b''
 
-    @property
-    def eh_frame_value_type(self) -> DW_EH_PE_ValueType:
-        if len(self.augmentation) > 0 and self.augmentation[0] == 'z' and 'R' in self.augmentation:
-            return DW_EH_PE_ValueType(self.augmentation_data[0] & 0xF)
-        raise BaseException('This CIE doesn\'t have augmentation that specifies use of .eh_frame value types.')
-
-    @property
-    def eh_frame_relation(self) -> DW_EH_PE_Relation:
-        if len(self.augmentation) > 0 and self.augmentation[0] == 'z' and 'R' in self.augmentation:
-            return DW_EH_PE_Relation(self.augmentation_data[0] >> 4)
-        raise BaseException('This CIE doesn\'t have augmentation that specifies use of .eh_frame value types.')
+    _: dataclasses.KW_ONLY
+    lsda_pointer_encoding: DW_EH_PE_ValueType | None = None
+    lsda_pointer_adjust: DW_EH_PE_Relation | None = None
+    personality_routine_pointer: int | None = None
+    personality_routine_adjust: DW_EH_PE_Relation | None = None
+    fde_pointer_encoding: DW_EH_PE_ValueType | None = None
+    fde_pointer_adjust: DW_EH_PE_Relation | None = None
 
     @staticmethod
     def read(sr: StreamReader) -> Optional['CieRecord']:
@@ -380,7 +385,41 @@ class CieRecord:
         augmentation_data: bytes = b''
         if 'z' in augmentation_str:
             augmentation_sz = sr.uleb128()
+            augmentation_offset = sr.current_position
+            # Read raw data and reset cursor to read again.
+            # Can't parse augmentations from augmentation_data, because
+            # personality_routine_pointer may have value dependant on a PC of
+            # that field (pcrel adjustment).
             augmentation_data = sr.bytes(augmentation_sz)
+            sr.set_abs_position(augmentation_offset)
+
+            # Parse augmentation data.
+            lsda_encoding: DW_EH_PE_ValueType | None = None
+            lsda_adjust: DW_EH_PE_Relation | None = None
+            pers_pointer: int | None = None
+            pers_adjust: DW_EH_PE_Relation | None = None
+            fde_pointer_encoding: DW_EH_PE_ValueType | None = None
+            fde_pointer_adjust: DW_EH_PE_Relation | None = None
+            for augmentatation_char in augmentation_str:
+                match augmentatation_char:
+                    case 'z':
+                        pass
+                    case 'L':
+                        b = sr.uint1()
+                        lsda_encoding = DW_EH_PE_ValueType(b & 0xF)
+                        lsda_adjust = DW_EH_PE_Relation(b >> 4)
+                    case 'P':
+                        b = sr.uint1()
+                        pers_encoding = DW_EH_PE_ValueType(b & 0xF)
+                        pers_adjust = DW_EH_PE_Relation(b >> 4)
+                        pers_offset = sr.current_position
+                        pers_pointer = pers_encoding.read_value(sr)
+                        if pers_adjust == DW_EH_PE_Relation.pcrel:
+                            pers_pointer = pers_offset + pers_pointer
+                    case 'R':
+                        b = sr.uint1()
+                        fde_pointer_encoding = DW_EH_PE_ValueType(b & 0xF)
+                        fde_pointer_adjust = DW_EH_PE_Relation(b >> 4)
 
         # Length of initial instructions field is defined as size of CIE minus
         # already read bytes.
@@ -397,6 +436,12 @@ class CieRecord:
             ra,
             init_instr,
             augmentation_data,
+            lsda_pointer_encoding=lsda_encoding,
+            lsda_pointer_adjust=lsda_adjust,
+            personality_routine_pointer=pers_pointer,
+            personality_routine_adjust=pers_adjust,
+            fde_pointer_encoding=fde_pointer_encoding,
+            fde_pointer_adjust=fde_pointer_adjust,
         )
 
 
@@ -453,8 +498,11 @@ class FdeRecord:
             # CIE using the CIE pointer - we already have CIE.
 
             pc_begin_offset = sr.current_position
-            pc_begin = cie.eh_frame_value_type.read_value(sr)
-            pc_range = cie.eh_frame_value_type.read_value(sr)
+            # The following condition might (?) actually be false, but this
+            # code assumes that `R` augmentation is always present.
+            assert cie.fde_pointer_encoding is not None
+            pc_begin = cie.fde_pointer_encoding.read_value(sr)
+            pc_range = cie.fde_pointer_encoding.read_value(sr)
 
             augmentation_sz = 0
             augmentation_data = b''
