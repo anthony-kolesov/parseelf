@@ -6,7 +6,7 @@
 from argparse import ArgumentParser
 from io import BytesIO
 from pathlib import Path
-from typing import cast, Iterable, Mapping, Sequence
+from typing import cast, Iterable, Sequence
 
 import dwarf
 import elf
@@ -440,7 +440,7 @@ def _print_verneed_info(
     def offset(value: int) -> str:
         if value == 0:
             return format(0, '06')
-        return format(vna.offset, '#06x')
+        return format(value, '#06x')
 
     print(f"\nVersion needs section '{section.name}' contains {entry_word(len(verneed_entries))}:")
     print(
@@ -492,41 +492,7 @@ def _print_versym_info(
             print(f'{value:4x}{hidden}{library_name:13}', end='')
         if index % 4 == 3:
             print()
-    if count % 4 == 3:
-        print()
-
-
-def _print_versym_info_1(
-    elf_obj: elf.Elf,
-    section: elf.Section,
-    versions: Mapping[int, elf.VersionNeededAux]
-) -> None:
-    count = section.header.size // section.header.entry_size
-    print(f"\nVersion symbols section '{section.name}' contains {count} entries:")
-    print(
-        f' Addr: {section.header.address:#018x}',
-        f'Offset: {section.header.offset:#08x}',
-        f'Link: {section.header.link} ({elf_obj.section_names[section.header.link]})',
-        sep='  ',
-    )
-    data = elf_obj.section_content(section.number)
-    for index in range(count):
-        start_byte = index * 2 + 1
-        end_byte = index * 2 - 1 if index > 0 else None
-        value = int(bytes.hex(data[start_byte:end_byte:-1]), 16)
-        if index % 4 == 0:
-            print(f'  {index:03x}:', end='')
-        if value == 0:
-            print('   0 (*local*)    ', end='')
-        elif value == 1:
-            print('   1 (*global*)   ', end='')
-        else:
-            library_name = versions[value].name.join(('(', ')'))
-            hidden = 'h' if versions[value].hidden else ' '
-            print(f'{value:4x}{hidden}{library_name:13}', end='')
-        if index % 4 == 3:
-            print()
-    if count % 4 == 3:
+    if count % 4 != 0:
         print()
 
 
@@ -546,18 +512,22 @@ def string_dump(
 ) -> None:
     """Dump the content of the specified sections as strings.
 
-    This function doesn't try to test wether the section is actually a string
+    This function doesn't try to test whether the section is actually a string
     table or not, except that it checks the first byte - it should be 0
     according to SystemV ABI (http://www.sco.com/developers/gabi/latest/ch4.strtab.html).
 
     :param sections_to_dump: Names of sections to dump.
     :param sections: Mapping from section names to headers."""
+    # For compatibility with readelf first print warnings for non-existing sections.
+    existing_section_numbers = []
     for section_num_or_name in sections_to_dump:
         if (not section_num_or_name.isnumeric()
            and section_num_or_name not in elf_obj.section_names):
             print(f"readelf: Warning: Section '{section_num_or_name}' was not dumped because it does not exist!")
-            continue
-        section_num = elf_obj.section_number(section_num_or_name)
+        else:
+            existing_section_numbers.append(elf_obj.section_number(section_num_or_name))
+
+    for section_num in existing_section_numbers:
         section_name = elf_obj.section_names[section_num]
         section = elf_obj.section_headers[section_num]
         print(f"\nString dump of section '{section_name}':")
@@ -668,10 +638,7 @@ if __name__ == "__main__":
     if args.version_info:
         print_version_info(elf_obj)
     if args.string_dump:
-        string_dump(
-            args.string_dump,
-            elf_obj,
-        )
+        string_dump(args.string_dump, elf_obj)
     if args.dwarf:
         if 'frames' in args.dwarf:
             print_dwarf_frames(elf_obj)
