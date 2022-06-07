@@ -15,8 +15,8 @@ __all__ = [
 import builtins
 import dataclasses
 from enum import Enum
-from io import SEEK_CUR
-from typing import BinaryIO, Iterator, Mapping, Optional, Sequence
+from io import BytesIO, SEEK_CUR
+from typing import BinaryIO, Iterable, Iterator, Mapping, Optional, Sequence
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
 
@@ -241,7 +241,9 @@ class CallFrameInstruction(Enum):
             case CallFrameInstruction.DW_CFA_def_cfa_offset_sf:
                 return f'{self.name}: {args[0] * daf}'
             case CallFrameInstruction.DW_CFA_def_cfa_expression:
-                return f'{self.name}: ({args[0].hex()})'
+                expr = ExpressionOperation.read(StreamReader(data_format, BytesIO(args[0])))
+                expr_str = ExpressionOperation.objdump_print_seq(arch, expr)
+                return f'{self.name} ({expr_str})'
 
             case (CallFrameInstruction.DW_CFA_undefined |
                   CallFrameInstruction.DW_CFA_same_value):
@@ -260,9 +262,13 @@ class CallFrameInstruction(Enum):
                 return f'{self.name}: {rn(args[0])} in {rn(args[1])}'
 
             case CallFrameInstruction.DW_CFA_expression:
-                return f'{self.name}: {rn(args[0])} ({args[1].hex()})'
+                expr = ExpressionOperation.read(StreamReader(data_format, BytesIO(args[1])))
+                expr_str = ExpressionOperation.objdump_print_seq(arch, expr)
+                return f'{self.name}: {rn(args[0])} ({expr_str})'
             case CallFrameInstruction.DW_CFA_val_expression:
-                return f'{self.name}: {rn(args[0])} ({args[1].hex()})'
+                expr = ExpressionOperation.read(StreamReader(data_format, BytesIO(args[1])))
+                expr_str = ExpressionOperation.objdump_print_seq(arch, expr)
+                return f'{self.name}: {rn(args[0])} ({expr_str})'
 
             case (CallFrameInstruction.DW_CFA_restore |
                   CallFrameInstruction.DW_CFA_restore_extended):
@@ -273,6 +279,215 @@ class CallFrameInstruction(Enum):
                   CallFrameInstruction.DW_CFA_nop |
                   _):
                 return self.name
+
+
+class ExpressionOperation(Enum):
+    operand_types: Sequence[type]
+
+    def __new__(cls, value: int, operand_types: Sequence[type] = tuple()):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.operand_types = operand_types
+        return obj
+
+    DW_OP_addr = (0x03, (StreamReader.pointer, ))
+    DW_OP_deref = 0x06
+    DW_OP_const1u = (0x08, (StreamReader.uint1, ))
+    DW_OP_const1s = (0x09, (StreamReader.sint1, ))
+    DW_OP_const2u = (0x0a, (StreamReader.uint2, ))
+    DW_OP_const2s = (0x0b, (StreamReader.sint2, ))
+    DW_OP_const4u = (0x0c, (StreamReader.uint4, ))
+    DW_OP_const4s = (0x0d, (StreamReader.sint4, ))
+    DW_OP_const8u = (0x0e, (StreamReader.uint8, ))
+    DW_OP_const8s = (0x0f, (StreamReader.sint8, ))
+    DW_OP_constu = (0x10, (StreamReader.uleb128, ))
+    DW_OP_consts = (0x11, (StreamReader.sleb128, ))
+    DW_OP_dup = 0x12
+    DW_OP_drop = 0x13
+    DW_OP_over = 0x14
+    DW_OP_pick = (0x15, (StreamReader.uint1, ))
+    DW_OP_swap = 0x16
+    DW_OP_rot = 0x17
+    DW_OP_xderef = 0x18
+    DW_OP_abs = 0x19
+    DW_OP_and = 0x1a
+    DW_OP_div = 0x1b
+    DW_OP_minus = 0x1c
+    DW_OP_mod = 0x1d
+    DW_OP_mul = 0x1e
+    DW_OP_neg = 0x1f
+    DW_OP_not = 0x20
+    DW_OP_or = 0x21
+    DW_OP_plus = 0x22
+    DW_OP_plus_uconst = (0x23, (StreamReader.uleb128, ))
+    DW_OP_shl = 0x24
+    DW_OP_shr = 0x25
+    DW_OP_shra = 0x26
+    DW_OP_xor = 0x27
+    DW_OP_skip = (0x2f, (StreamReader.sint2, ))
+    DW_OP_bra = (0x28, (StreamReader.sint2, ))
+    DW_OP_eq = 0x29
+    DW_OP_ge = 0x2a
+    DW_OP_gt = 0x2b
+    DW_OP_le = 0x2c
+    DW_OP_lt = 0x2d
+    DW_OP_ne = 0x2e
+    DW_OP_lit0 = 0x30
+    DW_OP_lit1 = 0x31
+    DW_OP_lit2 = 0x32
+    DW_OP_lit3 = 0x33
+    DW_OP_lit4 = 0x34
+    DW_OP_lit5 = 0x35
+    DW_OP_lit6 = 0x36
+    DW_OP_lit7 = 0x37
+    DW_OP_lit8 = 0x38
+    DW_OP_lit9 = 0x39
+    DW_OP_lit10 = 0x3a
+    DW_OP_lit11 = 0x3b
+    DW_OP_lit12 = 0x3c
+    DW_OP_lit13 = 0x3d
+    DW_OP_lit14 = 0x3e
+    DW_OP_lit15 = 0x3f
+    DW_OP_lit16 = 0x40
+    DW_OP_lit17 = 0x41
+    DW_OP_lit18 = 0x41
+    DW_OP_lit19 = 0x42
+    DW_OP_lit20 = 0x43
+    DW_OP_lit21 = 0x44
+    DW_OP_lit22 = 0x45
+    DW_OP_lit23 = 0x46
+    DW_OP_lit24 = 0x47
+    DW_OP_lit25 = 0x48
+    DW_OP_lit26 = 0x49
+    DW_OP_lit27 = 0x4a
+    DW_OP_lit28 = 0x4b
+    DW_OP_lit29 = 0x4c
+    DW_OP_lit30 = 0x4d
+    DW_OP_lit31 = 0x4e
+    DW_OP_lit32 = 0x4f
+    DW_OP_reg0 = 0x50
+    DW_OP_reg1 = 0x51
+    DW_OP_reg2 = 0x52
+    DW_OP_reg3 = 0x53
+    DW_OP_reg4 = 0x54
+    DW_OP_reg5 = 0x55
+    DW_OP_reg6 = 0x56
+    DW_OP_reg7 = 0x57
+    DW_OP_reg8 = 0x58
+    DW_OP_reg9 = 0x59
+    DW_OP_reg10 = 0x5a
+    DW_OP_reg11 = 0x5b
+    DW_OP_reg12 = 0x5c
+    DW_OP_reg13 = 0x5d
+    DW_OP_reg14 = 0x5e
+    DW_OP_reg15 = 0x5f
+    DW_OP_reg16 = 0x60
+    DW_OP_reg17 = 0x61
+    DW_OP_reg18 = 0x61
+    DW_OP_reg19 = 0x62
+    DW_OP_reg20 = 0x63
+    DW_OP_reg21 = 0x64
+    DW_OP_reg22 = 0x65
+    DW_OP_reg23 = 0x66
+    DW_OP_reg24 = 0x67
+    DW_OP_reg25 = 0x68
+    DW_OP_reg26 = 0x69
+    DW_OP_reg27 = 0x6a
+    DW_OP_reg28 = 0x6b
+    DW_OP_reg29 = 0x6c
+    DW_OP_reg30 = 0x6d
+    DW_OP_reg31 = 0x6e
+    DW_OP_reg32 = 0x6f
+    DW_OP_breg0 = (0x70, (StreamReader.sleb128, ))
+    DW_OP_breg1 = (0x71, (StreamReader.sleb128, ))
+    DW_OP_breg2 = (0x72, (StreamReader.sleb128, ))
+    DW_OP_breg3 = (0x73, (StreamReader.sleb128, ))
+    DW_OP_breg4 = (0x74, (StreamReader.sleb128, ))
+    DW_OP_breg5 = (0x75, (StreamReader.sleb128, ))
+    DW_OP_breg6 = (0x76, (StreamReader.sleb128, ))
+    DW_OP_breg7 = (0x77, (StreamReader.sleb128, ))
+    DW_OP_breg8 = (0x78, (StreamReader.sleb128, ))
+    DW_OP_breg9 = (0x79, (StreamReader.sleb128, ))
+    DW_OP_breg10 = (0x7a, (StreamReader.sleb128, ))
+    DW_OP_breg11 = (0x7b, (StreamReader.sleb128, ))
+    DW_OP_breg12 = (0x7c, (StreamReader.sleb128, ))
+    DW_OP_breg13 = (0x7d, (StreamReader.sleb128, ))
+    DW_OP_breg14 = (0x7e, (StreamReader.sleb128, ))
+    DW_OP_breg15 = (0x7f, (StreamReader.sleb128, ))
+    DW_OP_breg16 = (0x80, (StreamReader.sleb128, ))
+    DW_OP_breg17 = (0x81, (StreamReader.sleb128, ))
+    DW_OP_breg18 = (0x81, (StreamReader.sleb128, ))
+    DW_OP_breg19 = (0x82, (StreamReader.sleb128, ))
+    DW_OP_breg20 = (0x83, (StreamReader.sleb128, ))
+    DW_OP_breg21 = (0x84, (StreamReader.sleb128, ))
+    DW_OP_breg22 = (0x85, (StreamReader.sleb128, ))
+    DW_OP_breg23 = (0x86, (StreamReader.sleb128, ))
+    DW_OP_breg24 = (0x87, (StreamReader.sleb128, ))
+    DW_OP_breg25 = (0x88, (StreamReader.sleb128, ))
+    DW_OP_breg26 = (0x89, (StreamReader.sleb128, ))
+    DW_OP_breg27 = (0x8a, (StreamReader.sleb128, ))
+    DW_OP_breg28 = (0x8b, (StreamReader.sleb128, ))
+    DW_OP_breg29 = (0x8c, (StreamReader.sleb128, ))
+    DW_OP_breg30 = (0x8d, (StreamReader.sleb128, ))
+    DW_OP_breg31 = (0x8e, (StreamReader.sleb128, ))
+    DW_OP_breg32 = (0x8f, (StreamReader.sleb128, ))
+    DW_OP_regx = (0x90, (StreamReader.uleb128, ))
+    DW_OP_fbreg = (0x91, (StreamReader.sleb128, ))
+    DW_OP_bregx = (0x92, (StreamReader.uleb128, StreamReader.sleb128))
+    DW_OP_piece = (0x93, (StreamReader.uleb128, ))
+    DW_OP_deref_size = (0x94, (StreamReader.uint1, ))
+    DW_OP_xderef_size = (0x95, (StreamReader.uint1, ))
+    DW_OP_nop = 0x96
+    DW_OP_push_object_address = 0x97
+    DW_OP_call2 = (0x98, (StreamReader.uint2, ))
+    DW_OP_call4 = (0x99, (StreamReader.uint4, ))
+    DW_OP_call_ref = (0x9a, (StreamReader.pointer, ))
+    DW_OP_form_tls_address = 0x9b
+    DW_OP_call_frame_cfa = 0x9c
+    DW_OP_bit_piece = (0x9d, (StreamReader.uleb128, StreamReader.uleb128))
+    DW_OP_implicit_value = (0x9e, (StreamReader.block, ))
+    DW_OP_stack_value = 0x9f
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterable[tuple['ExpressionOperation', tuple]]:
+        while not sr.at_eof:
+            code = sr.uint1()
+            op = ExpressionOperation(code)
+            operand_values = tuple(operand_type(sr) for operand_type in op.operand_types)
+            yield op, operand_values
+
+    def objdump_print(
+            self: 'ExpressionOperation',
+            arch: ElfMachineType,
+            *args,
+    ) -> str:
+        """Format operation in the style of objdump.
+
+        :params args: Operation operands."""
+        regs = _dwarf_register_names.get(arch, {})
+
+        def rn(regnum: int) -> str:
+            if regnum in regs:
+                return f'reg{regnum} ({regs[regnum]})'
+            return f'reg{regnum}'
+
+        if ExpressionOperation.DW_OP_reg0.value < self.value < ExpressionOperation.DW_OP_reg31.value:
+            regnum = self.value - 0x50
+            return f'DW_OP_{rn(regnum)}'
+        elif ExpressionOperation.DW_OP_breg0.value < self.value < ExpressionOperation.DW_OP_breg31.value:
+            regnum = self.value - 0x70
+            return f'DW_OP_b{rn(regnum)}: {args[0]}'
+        elif ExpressionOperation.DW_OP_implicit_value == self:
+            return f'{self.name}: {args[0].hex()}'
+        operands_str = operands_str = ': ' + ' '.join(args) if len(args) > 0 else ''
+        return self.name + operands_str
+
+    @staticmethod
+    def objdump_print_seq(
+        arch: ElfMachineType,
+        operations: Iterable[tuple['ExpressionOperation', tuple]],
+    ):
+        return '; '.join(op.objdump_print(arch, *args) for op, args in operations)
 
 
 class DW_EH_PE_ValueType(Enum):
