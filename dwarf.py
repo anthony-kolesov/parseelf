@@ -578,6 +578,8 @@ class CieRecord:
         length = sr.uint4()
         if length == 0:
             # Null terminator CIE.
+            # Reset cursor, so offset of the null record can be evaluated.
+            sr.set_abs_position(offset)
             return None
         if length == 0xffffffff:
             # Read extended length.

@@ -17,6 +17,7 @@ do
     $READELF -W --version-info $file &> version-info.${f}.txt
     $READELF -W --string-dump=.dynstr --string-dump=.strtab --string-dump=.shstrtab $file &> strings.${f}.txt
     $OBJDUMP --dwarf $file &> dwarf.${f}.txt
-    $OBJDUMP --dwarf=frames $file &> dwarf-frames.${f}.txt
+    # Strip lines that I don't want to generate in parse_elf.py
+    $OBJDUMP --dwarf=frames $file |& tail -n+3 > dwarf-frames.${f}.txt
     $OBJDUMP --dwarf=frames-interp $file &> dwarf-frames-interp.${f}.txt
 done

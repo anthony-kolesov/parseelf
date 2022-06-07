@@ -638,6 +638,9 @@ def print_dwarf_frames(
                     frame_pc,
                     *fde_operands
                 ))
+    # CieRecord.read doesn't return null record explicitly, but it is present in
+    # the stream and objdump prints it.
+    print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
 
 
 if __name__ == "__main__":
