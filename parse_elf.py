@@ -194,6 +194,13 @@ def print_program_headers(
                      (elf.SectionFlags.ALLOC not in s.flags)
                      or (ph.vaddr <= s.address and (s.address + s.size) <= (ph.vaddr + ph.memsz))
                      )
+                # .tbss is special.  It doesn't contribute memory space to normal
+                # segments and it doesn't take file space in normal segments.
+                and not (
+                    (elf.SectionFlags.TLS in s.flags)
+                    and (s.type == elf.SectionType.NOBITS)
+                    and (ph.type != elf.ProgramHeaderType.TLS)
+                )
                 and name
                 )
         )
