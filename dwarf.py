@@ -253,7 +253,7 @@ class CallFrameInstruction(Enum):
             case CallFrameInstruction.DW_CFA_def_cfa_offset_sf:
                 return f'{self.name}: {args[0] * daf}'
             case CallFrameInstruction.DW_CFA_def_cfa_expression:
-                expr_str = ExpressionOperation.objdump_print_seq(arch, args[0])
+                expr_str = ExpressionOperation.objdump_format_seq(arch, args[0])
                 return f'{self.name} ({expr_str})'
 
             case (CallFrameInstruction.DW_CFA_undefined |
@@ -273,10 +273,10 @@ class CallFrameInstruction(Enum):
                 return f'{self.name}: {rn(args[0])} in {rn(args[1])}'
 
             case CallFrameInstruction.DW_CFA_expression:
-                expr_str = ExpressionOperation.objdump_print_seq(arch, args[1])
+                expr_str = ExpressionOperation.objdump_format_seq(arch, args[1])
                 return f'{self.name}: {rn(args[0])} ({expr_str})'
             case CallFrameInstruction.DW_CFA_val_expression:
-                expr_str = ExpressionOperation.objdump_print_seq(arch, args[1])
+                expr_str = ExpressionOperation.objdump_format_seq(arch, args[1])
                 return f'{self.name}: {rn(args[0])} ({expr_str})'
 
             case (CallFrameInstruction.DW_CFA_restore |
@@ -291,6 +291,11 @@ class CallFrameInstruction(Enum):
 
 
 class ExpressionOperation(Enum):
+    """A class to represent DWARF expression operations.
+
+    Contains operation code and argument types (if any).
+
+    See ``ExpressionData`` for type that combines operation with operand values."""
     operand_types: Sequence[type]
 
     def __new__(cls, value: int, operand_types: Sequence[type] = tuple()):
@@ -458,17 +463,17 @@ class ExpressionOperation(Enum):
     DW_OP_stack_value = 0x9f
 
     @staticmethod
-    def read(sr: StreamReader) -> Iterable[tuple['ExpressionOperation', tuple]]:
+    def read(sr: StreamReader) -> Iterable['ExpressionData']:
         while not sr.at_eof:
             code = sr.uint1()
             op = ExpressionOperation(code)
             operand_values = tuple(operand_type(sr) for operand_type in op.operand_types)
-            yield op, operand_values
+            yield ExpressionData(op, operand_values)
 
-    def objdump_print(
-            self: 'ExpressionOperation',
-            arch: ElfMachineType,
-            *args,
+    def objdump_format(
+        self,
+        arch: ElfMachineType,
+        *args,
     ) -> str:
         """Format operation in the style of objdump.
 
@@ -492,11 +497,17 @@ class ExpressionOperation(Enum):
         return self.name + operands_str
 
     @staticmethod
-    def objdump_print_seq(
+    def objdump_format_seq(
         arch: ElfMachineType,
-        operations: Iterable[tuple['ExpressionOperation', tuple]],
-    ):
-        return '; '.join(op.objdump_print(arch, *args) for op, args in operations)
+        operations: Iterable['ExpressionData'],
+    ) -> str:
+        return '; '.join(op.objdump_format(arch, *args) for op, args in operations)
+
+
+class ExpressionData(NamedTuple):
+    """A class to represent DWARF expression operation and operand values."""
+    operation: ExpressionOperation
+    operands: tuple
 
 
 class DW_EH_PE_ValueType(Enum):
@@ -814,15 +825,11 @@ _dwarf_register_names = {
 class CfaDefinition:
     reg: int
     offset: int
+    _: dataclasses.KW_ONLY
     # Either expression is present or reg+offset.
     # Expression is the collection of tuples, where first item is the
     # expression operation and second is the tuple of operation arguments.
-    expression: Sequence[tuple[ExpressionOperation, tuple]] = dataclasses.field(default_factory=tuple)
-
-
-class Expression(NamedTuple):
-    op: ExpressionOperation
-    operands: tuple
+    expression: Sequence[ExpressionData] = dataclasses.field(default_factory=tuple)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -832,7 +839,7 @@ class RegisterRule:
     _: dataclasses.KW_ONLY
     reg: int = 0
     offset: int = 0
-    expression: Sequence[Expression] = dataclasses.field(default_factory=tuple)
+    expression: Sequence[ExpressionData] = dataclasses.field(default_factory=tuple)
 
     def __str__(self) -> str:
         match self.instruction:
@@ -927,7 +934,7 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
                 cfa = dataclasses.replace(line.cfa, offset=args[0] * self.__cie.data_alignment_factor)
                 return dataclasses.replace(line, cfa=cfa)
             case CallFrameInstruction.DW_CFA_def_cfa_expression:
-                cfa = CfaDefinition(0, 0, args[0])
+                cfa = CfaDefinition(0, 0, expression=args[0])
                 return dataclasses.replace(line, cfa=cfa)
 
             # Register_rules
