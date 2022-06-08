@@ -80,7 +80,10 @@ def create_parser() -> ArgumentParser:
     parser.add_argument(
         '--dwarf', '--debug-dump', '-w',
         help='Display debug information in object file',
-        choices=('frames'),
+        choices=(
+            'frames-interp',
+            'frames',
+        ),
         action='append',
     )
     parser.add_argument(
@@ -620,6 +623,75 @@ def print_dwarf_frames(
     print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
 
 
+def print_dwarf_frames_interp(
+    elf_obj: elf.Elf,
+) -> None:
+    eh_frame = next((s for s in elf_obj.sections if s.name == '.eh_frame'), None)
+    if eh_frame is None:
+        return
+    print('\nContents of the .eh_frame section:\n')
+
+    def format_cie_header(cie: dwarf.CieRecord) -> str:
+        return ' '.join((
+            format(cie.offset, '08x'),
+            format(cie.size, elf_obj.elf_class.address_format),
+            format(0, '08x'),
+            'CIE',
+            f'"{cie.augmentation}"',
+            f'cf={cie.code_alignment_factor}',
+            f'df={cie.data_alignment_factor}',
+            f'ra={cie.return_address_register}',
+        ))
+
+    stream = BytesIO(elf_obj.section_content(eh_frame.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
+    cie_cftables: dict[int, dwarf.CallFrameTable] = {}
+    while cie := dwarf.CieRecord.read(sr):
+        print()
+        print(format_cie_header(cie))
+
+        init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(cie.initial_instructions))
+        cie_cftable = dwarf.CallFrameTable(cie)
+        while not init_instr_sr.at_eof:
+            cfinstr, operands = dwarf.CallFrameInstruction.read(init_instr_sr)
+            cie_cftable.do_instruction(cfinstr, *operands)
+        if cie_cftable_str := cie_cftable.objdump_format(elf_obj.file_header.machine, elf_obj.data_format):
+            print(cie_cftable_str)
+        cie_cftables[cie.offset] = cie_cftable
+
+        cie_records[cie.offset] = cie
+        for fde in dwarf.FdeRecord.read(sr, cie_records):
+            # Meaning of pc_begin depends on CIE augmentation.
+            match cie.fde_pointer_adjust:
+                case dwarf.DW_EH_PE_Relation.pcrel:
+                    pc_begin = eh_frame.header.address + fde.pc_begin_offset + fde.pc_begin
+                case _:
+                    raise NotImplementedError('This type of DW_EH_PE relation is not supported.')
+
+            pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
+            pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
+            print(
+                f'\n{fde.offset:08x}',
+                format(fde.size, elf_obj.elf_class.address_format),
+                format(fde.cie_ptr, '08x'),
+                f'FDE cie={fde.cie.offset:08x}',
+                f'pc={pc_begin_str}..{pc_end_str}'
+            )
+
+            fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
+            fde_cftable = cie_cftables[fde.cie.offset].copy(pc_begin)
+            while not fde_instr_sr.at_eof:
+                fde_instr, fde_operands = dwarf.CallFrameInstruction.read(fde_instr_sr)
+                fde_cftable.do_instruction(fde_instr, *fde_operands)
+            if fde_cftable_str := fde_cftable.objdump_format(elf_obj.file_header.machine, elf_obj.data_format):
+                print(fde_cftable_str)
+
+    # CieRecord.read doesn't return null record explicitly, but it is present in
+    # the stream and objdump prints it.
+    print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
+
+
 if __name__ == "__main__":
     parser = create_parser()
     args = cast(Arguments, parser.parse_args())
@@ -647,6 +719,8 @@ if __name__ == "__main__":
     if args.string_dump:
         string_dump(args.string_dump, elf_obj)
     if args.dwarf:
+        if 'frames-interp' in args.dwarf:
+            print_dwarf_frames_interp(elf_obj)
         if 'frames' in args.dwarf:
             print_dwarf_frames(elf_obj)
 
