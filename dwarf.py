@@ -7,8 +7,8 @@ __all__ = [
     'StreamReader',
     'CfaInstructionCode',
     'CfaInstruction',
+    'ExpressionOperationCode',
     'ExpressionOperation',
-    'ExpressionData',
     'DW_EH_PE_ValueType',
     'DW_EH_PE_Relation',
     'CieRecord',
@@ -304,7 +304,7 @@ class CfaInstruction(NamedTuple):
                 return name
 
 
-class ExpressionOperation(Enum):
+class ExpressionOperationCode(Enum):
     """A class to represent DWARF expression operations.
 
     Contains operation code and argument types (if any).
@@ -476,18 +476,23 @@ class ExpressionOperation(Enum):
     DW_OP_implicit_value = (0x9e, (StreamReader.block, ))
     DW_OP_stack_value = 0x9f
 
+
+class ExpressionOperation(NamedTuple):
+    """A class to represent DWARF expression operation and operand values."""
+    operation: ExpressionOperationCode
+    operands: tuple
+
     @staticmethod
-    def read(sr: StreamReader) -> Iterable['ExpressionData']:
+    def read(sr: StreamReader) -> Iterable['ExpressionOperation']:
         while not sr.at_eof:
             code = sr.uint1()
-            op = ExpressionOperation(code)
+            op = ExpressionOperationCode(code)
             operand_values = tuple(operand_type(sr) for operand_type in op.operand_types)
-            yield ExpressionData(op, operand_values)
+            yield ExpressionOperation(op, operand_values)
 
     def objdump_format(
         self,
         arch: ElfMachineType,
-        *args,
     ) -> str:
         """Format operation in the style of objdump.
 
@@ -499,29 +504,24 @@ class ExpressionOperation(Enum):
                 return f'reg{regnum} ({regs[regnum]})'
             return f'reg{regnum}'
 
-        if ExpressionOperation.DW_OP_reg0.value < self.value < ExpressionOperation.DW_OP_reg31.value:
-            regnum = self.value - 0x50
+        if ExpressionOperationCode.DW_OP_reg0.value < self.operation.value < ExpressionOperationCode.DW_OP_reg31.value:
+            regnum = self.operation.value - 0x50
             return f'DW_OP_{rn(regnum)}'
-        elif ExpressionOperation.DW_OP_breg0.value < self.value < ExpressionOperation.DW_OP_breg31.value:
-            regnum = self.value - 0x70
-            return f'DW_OP_b{rn(regnum)}: {args[0]}'
-        elif ExpressionOperation.DW_OP_implicit_value == self:
-            return f'{self.name}: {args[0].hex()}'
-        operands_str = operands_str = ': ' + ' '.join(args) if len(args) > 0 else ''
-        return self.name + operands_str
+        elif (ExpressionOperationCode.DW_OP_breg0.value < self.operation.value
+              < ExpressionOperationCode.DW_OP_breg31.value):
+            regnum = self.operation.value - 0x70
+            return f'DW_OP_b{rn(regnum)}: {self.operands[0]}'
+        elif ExpressionOperationCode.DW_OP_implicit_value == self:
+            return f'{self.operation.name}: {self.operands[0].hex()}'
+        operands_str = operands_str = ': ' + ' '.join(self.operands) if len(self.operands) > 0 else ''
+        return self.operation.name + operands_str
 
     @staticmethod
     def objdump_format_seq(
         arch: ElfMachineType,
-        operations: Iterable['ExpressionData'],
+        operations: Iterable['ExpressionOperation'],
     ) -> str:
-        return '; '.join(op.objdump_format(arch, *args) for op, args in operations)
-
-
-class ExpressionData(NamedTuple):
-    """A class to represent DWARF expression operation and operand values."""
-    operation: ExpressionOperation
-    operands: tuple
+        return '; '.join(op.objdump_format(arch) for op in operations)
 
 
 class DW_EH_PE_ValueType(Enum):
@@ -844,7 +844,7 @@ class CfaDefinition:
     # Either expression is present or reg+offset.
     # Expression is the collection of tuples, where first item is the
     # expression operation and second is the tuple of operation arguments.
-    expression: Sequence[ExpressionData] = dataclasses.field(default_factory=tuple)
+    expression: Sequence[ExpressionOperation] = dataclasses.field(default_factory=tuple)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -855,7 +855,7 @@ class RegisterRule:
     _: dataclasses.KW_ONLY
     reg: int = 0
     offset: int = 0
-    expression: Sequence[ExpressionData] = dataclasses.field(default_factory=tuple)
+    expression: Sequence[ExpressionOperation] = dataclasses.field(default_factory=tuple)
 
     def __str__(self) -> str:
         match self.instruction:
