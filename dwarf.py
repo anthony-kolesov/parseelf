@@ -5,11 +5,18 @@
 
 __all__ = [
     'StreamReader',
-    'CallFrameInstruction',
+    'CfaInstructionCode',
+    'CfaInstruction',
+    'ExpressionOperation',
+    'ExpressionData',
     'DW_EH_PE_ValueType',
     'DW_EH_PE_Relation',
     'CieRecord',
     'FdeRecord',
+    'CfaDefinition',
+    'RegisterRule',
+    'CallFrameLine',
+    'CallFrameTable',
 ]
 
 import builtins
@@ -150,7 +157,7 @@ class StreamReader:
         return self.__df
 
 
-class CallFrameInstruction(Enum):
+class CfaInstructionCode(Enum):
     operand_types: Sequence[type]
 
     def __new__(cls, value: int, operand_types: Sequence[type] = tuple()):
@@ -186,39 +193,44 @@ class CallFrameInstruction(Enum):
     DW_CFA_val_offset_sf = (0x15, (StreamReader.uleb128, StreamReader.sleb128))
     DW_CFA_val_expression = (0x16, (StreamReader.uleb128, StreamReader.block))
 
+
+class CfaInstruction(NamedTuple):
+    """A class to represent call frame instruction with operands."""
+    instruction: CfaInstructionCode
+    operands: tuple
+
     @staticmethod
-    def read(sr: StreamReader) -> tuple['CallFrameInstruction', tuple]:
+    def read(sr: StreamReader) -> 'CfaInstruction':
         b = sr.uint1()
         # Argument is inside of opcode
         match b >> 6:
             case 0:
                 # 'Normal' instructions.
-                instr = CallFrameInstruction(b & 0x3F)
+                instr = CfaInstructionCode(b & 0x3F)
                 op_values = tuple(operand_type(sr) for operand_type in instr.operand_types)
                 match instr:
-                    case CallFrameInstruction.DW_CFA_def_cfa_expression:
+                    case CfaInstructionCode.DW_CFA_def_cfa_expression:
                         expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[0]))))
-                        return instr, (expr, )
-                    case CallFrameInstruction.DW_CFA_expression | CallFrameInstruction.DW_CFA_val_expression:
+                        return CfaInstruction(instr, (expr, ))
+                    case CfaInstructionCode.DW_CFA_expression | CfaInstructionCode.DW_CFA_val_expression:
                         expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[1]))))
-                        return instr, (op_values[0], expr)
-                return instr, op_values
+                        return CfaInstruction(instr, (op_values[0], expr))
+                return CfaInstruction(instr, op_values)
             case 1:
-                return CallFrameInstruction.DW_CFA_advance_loc, (b & 0x3F,)
+                return CfaInstruction(CfaInstructionCode.DW_CFA_advance_loc, (b & 0x3F,))
             case 2:
-                return CallFrameInstruction.DW_CFA_offset, (b & 0x3F, sr.uleb128())
+                return CfaInstruction(CfaInstructionCode.DW_CFA_offset, (b & 0x3F, sr.uleb128()))
             case 3:
-                return CallFrameInstruction.DW_CFA_restore, (b & 0x3F,)
+                return CfaInstruction(CfaInstructionCode.DW_CFA_restore, (b & 0x3F,))
             case _:
                 raise NotImplementedError('Unsupported call frame instruction.')
 
-    def objdump_print(
+    def objdump_format(
             self,
             arch: ElfMachineType,
             data_format: DataFormat,
             cie: 'CieRecord',
             frame_pc: int,
-            *args,
     ) -> str:
         """Format instruction in the style of objdump.
 
@@ -233,61 +245,63 @@ class CallFrameInstruction(Enum):
                 return f'r{regnum} ({regs[regnum]})'
             return f'r{regnum}'
 
-        match self:
-            case CallFrameInstruction.DW_CFA_set_loc:
-                return f'{self.name}: {args[0]:016x}'
-            case (CallFrameInstruction.DW_CFA_advance_loc |
-                  CallFrameInstruction.DW_CFA_advance_loc1 |
-                  CallFrameInstruction.DW_CFA_advance_loc2 |
-                  CallFrameInstruction.DW_CFA_advance_loc4):
-                return f'{self.name}: {args[0] * caf} to {frame_pc:{data_format.bits.address_format}}'
+        name = self.instruction.name
+        args = self.operands
+        match self.instruction:
+            case CfaInstructionCode.DW_CFA_set_loc:
+                return f'{name}: {args[0]:016x}'
+            case (CfaInstructionCode.DW_CFA_advance_loc |
+                  CfaInstructionCode.DW_CFA_advance_loc1 |
+                  CfaInstructionCode.DW_CFA_advance_loc2 |
+                  CfaInstructionCode.DW_CFA_advance_loc4):
+                return f'{name}: {args[0] * caf} to {frame_pc:{data_format.bits.address_format}}'
 
-            case CallFrameInstruction.DW_CFA_def_cfa:
-                return f'{self.name}: {rn(args[0])} ofs {args[1]}'
-            case CallFrameInstruction.DW_CFA_def_cfa_sf:
-                return f'{self.name}: {rn(args[0])} ofs {args[1] * daf}'
-            case CallFrameInstruction.DW_CFA_def_cfa_register:
-                return f'{self.name}: {rn(args[0])}'
-            case CallFrameInstruction.DW_CFA_def_cfa_offset:
-                return f'{self.name}: {args[0]}'
-            case CallFrameInstruction.DW_CFA_def_cfa_offset_sf:
-                return f'{self.name}: {args[0] * daf}'
-            case CallFrameInstruction.DW_CFA_def_cfa_expression:
+            case CfaInstructionCode.DW_CFA_def_cfa:
+                return f'{name}: {rn(args[0])} ofs {args[1]}'
+            case CfaInstructionCode.DW_CFA_def_cfa_sf:
+                return f'{name}: {rn(args[0])} ofs {args[1] * daf}'
+            case CfaInstructionCode.DW_CFA_def_cfa_register:
+                return f'{name}: {rn(args[0])}'
+            case CfaInstructionCode.DW_CFA_def_cfa_offset:
+                return f'{name}: {args[0]}'
+            case CfaInstructionCode.DW_CFA_def_cfa_offset_sf:
+                return f'{name}: {args[0] * daf}'
+            case CfaInstructionCode.DW_CFA_def_cfa_expression:
                 expr_str = ExpressionOperation.objdump_format_seq(arch, args[0])
-                return f'{self.name} ({expr_str})'
+                return f'{name} ({expr_str})'
 
-            case (CallFrameInstruction.DW_CFA_undefined |
-                  CallFrameInstruction.DW_CFA_same_value):
-                return f'{self.name}: {rn(args[0])}'
+            case (CfaInstructionCode.DW_CFA_undefined |
+                  CfaInstructionCode.DW_CFA_same_value):
+                return f'{name}: {rn(args[0])}'
 
-            case (CallFrameInstruction.DW_CFA_offset |
-                  CallFrameInstruction.DW_CFA_offset_extended |
-                  CallFrameInstruction.DW_CFA_offset_extended_sf):
-                return f'{self.name}: {rn(args[0])} at cfa{args[1] * daf:+}'
+            case (CfaInstructionCode.DW_CFA_offset |
+                  CfaInstructionCode.DW_CFA_offset_extended |
+                  CfaInstructionCode.DW_CFA_offset_extended_sf):
+                return f'{name}: {rn(args[0])} at cfa{args[1] * daf:+}'
 
-            case (CallFrameInstruction.DW_CFA_val_offset |
-                  CallFrameInstruction.DW_CFA_val_offset_sf):
-                return f'{self.name}: {rn(args[0])} at cfa{args[1] * daf:+}'
+            case (CfaInstructionCode.DW_CFA_val_offset |
+                  CfaInstructionCode.DW_CFA_val_offset_sf):
+                return f'{name}: {rn(args[0])} at cfa{args[1] * daf:+}'
 
-            case CallFrameInstruction.DW_CFA_register:
-                return f'{self.name}: {rn(args[0])} in {rn(args[1])}'
+            case CfaInstructionCode.DW_CFA_register:
+                return f'{name}: {rn(args[0])} in {rn(args[1])}'
 
-            case CallFrameInstruction.DW_CFA_expression:
+            case CfaInstructionCode.DW_CFA_expression:
                 expr_str = ExpressionOperation.objdump_format_seq(arch, args[1])
-                return f'{self.name}: {rn(args[0])} ({expr_str})'
-            case CallFrameInstruction.DW_CFA_val_expression:
+                return f'{name}: {rn(args[0])} ({expr_str})'
+            case CfaInstructionCode.DW_CFA_val_expression:
                 expr_str = ExpressionOperation.objdump_format_seq(arch, args[1])
-                return f'{self.name}: {rn(args[0])} ({expr_str})'
+                return f'{name}: {rn(args[0])} ({expr_str})'
 
-            case (CallFrameInstruction.DW_CFA_restore |
-                  CallFrameInstruction.DW_CFA_restore_extended):
-                return f'{self.name}: {rn(args[0])}'
+            case (CfaInstructionCode.DW_CFA_restore |
+                  CfaInstructionCode.DW_CFA_restore_extended):
+                return f'{name}: {rn(args[0])}'
 
-            case (CallFrameInstruction.DW_CFA_remember_state |
-                  CallFrameInstruction.DW_CFA_restore_state |
-                  CallFrameInstruction.DW_CFA_nop |
+            case (CfaInstructionCode.DW_CFA_remember_state |
+                  CfaInstructionCode.DW_CFA_restore_state |
+                  CfaInstructionCode.DW_CFA_nop |
                   _):
-                return self.name
+                return name
 
 
 class ExpressionOperation(Enum):
@@ -823,6 +837,7 @@ _dwarf_register_names = {
 
 @dataclasses.dataclass(frozen=True)
 class CfaDefinition:
+    """A class to represent a CFA definition for the frame's line."""
     reg: int
     offset: int
     _: dataclasses.KW_ONLY
@@ -834,7 +849,8 @@ class CfaDefinition:
 
 @dataclasses.dataclass(frozen=True)
 class RegisterRule:
-    instruction: CallFrameInstruction = CallFrameInstruction.DW_CFA_undefined
+    """A class to represent a single register rule in the frame's unwind table."""
+    instruction: CfaInstructionCode = CfaInstructionCode.DW_CFA_undefined
 
     _: dataclasses.KW_ONLY
     reg: int = 0
@@ -843,21 +859,20 @@ class RegisterRule:
 
     def __str__(self) -> str:
         match self.instruction:
-            case CallFrameInstruction.DW_CFA_undefined:
+            case CfaInstructionCode.DW_CFA_undefined:
                 return 'u'
-            case CallFrameInstruction.DW_CFA_same_value:
+            case CfaInstructionCode.DW_CFA_same_value:
                 # return 's'
                 raise NotImplementedError()
-            case CallFrameInstruction.DW_CFA_expression:
+            case CfaInstructionCode.DW_CFA_expression:
                 return 'exp'
-            case CallFrameInstruction.DW_CFA_register:
+            case CfaInstructionCode.DW_CFA_register:
                 return f'r{self.reg}'
-            case (CallFrameInstruction.DW_CFA_val_offset |
-                  CallFrameInstruction.DW_CFA_val_offset_sf |
-                  # CallFrameInstruction.DW_CFA_register |
-                  CallFrameInstruction.DW_CFA_val_expression |
-                  CallFrameInstruction.DW_CFA_restore |
-                  CallFrameInstruction.DW_CFA_restore_extended):
+            case (CfaInstructionCode.DW_CFA_val_offset |
+                  CfaInstructionCode.DW_CFA_val_offset_sf |
+                  CfaInstructionCode.DW_CFA_val_expression |
+                  CfaInstructionCode.DW_CFA_restore |
+                  CfaInstructionCode.DW_CFA_restore_extended):
                 raise NotImplementedError()
             case _:
                 return f'c{self.offset:+}'
@@ -889,13 +904,13 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
         self.__state_stack = list()
         self.__cie = cie
 
-    def do_instruction(self, instr: CallFrameInstruction, *args) -> None:
-        if instr == CallFrameInstruction.DW_CFA_nop:
+    def do_instruction(self, instr: CfaInstruction) -> None:
+        if instr.instruction == CfaInstructionCode.DW_CFA_nop:
             return
 
         prev = (self.__rows[-1] if len(self.__rows)
                 else (self.__initial[-1] if len(self.__initial) else CallFrameLine(0)))
-        n = self.__next_line(prev, instr, *args)
+        n = self.__next_line(prev, instr)
         if n.loc != prev.loc or len(self.__rows) == 0:
             self.__rows.append(n)
         else:
@@ -904,92 +919,92 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
     def __next_line(
         self,
         line: CallFrameLine,
-        instr: CallFrameInstruction,
-        *args,
+        instr: CfaInstruction,
     ) -> 'CallFrameLine':
-        match instr:
+        args = instr.operands
+        match instr.instruction:
             # Location Instructions.
-            case CallFrameInstruction.DW_CFA_set_loc:
+            case CfaInstructionCode.DW_CFA_set_loc:
                 return dataclasses.replace(line, loc=args[0])
-            case (CallFrameInstruction.DW_CFA_advance_loc |
-                  CallFrameInstruction.DW_CFA_advance_loc1 |
-                  CallFrameInstruction.DW_CFA_advance_loc2 |
-                  CallFrameInstruction.DW_CFA_advance_loc4):
+            case (CfaInstructionCode.DW_CFA_advance_loc |
+                  CfaInstructionCode.DW_CFA_advance_loc1 |
+                  CfaInstructionCode.DW_CFA_advance_loc2 |
+                  CfaInstructionCode.DW_CFA_advance_loc4):
                 new_loc = line.loc + args[0] * self.__cie.code_alignment_factor
                 return dataclasses.replace(line, loc=new_loc)
 
             # CFA Definition Instructions.
-            case CallFrameInstruction.DW_CFA_def_cfa:
+            case CfaInstructionCode.DW_CFA_def_cfa:
                 return dataclasses.replace(line, cfa=CfaDefinition(args[0], args[1]))
-            case CallFrameInstruction.DW_CFA_def_cfa_sf:
+            case CfaInstructionCode.DW_CFA_def_cfa_sf:
                 cfa = CfaDefinition(args[0], args[1] * self.__cie.data_alignment_factor)
                 return dataclasses.replace(line, cfa=cfa)
-            case CallFrameInstruction.DW_CFA_def_cfa_register:
+            case CfaInstructionCode.DW_CFA_def_cfa_register:
                 cfa = dataclasses.replace(line.cfa, reg=args[0])
                 return dataclasses.replace(line, cfa=cfa)
-            case CallFrameInstruction.DW_CFA_def_cfa_offset:
+            case CfaInstructionCode.DW_CFA_def_cfa_offset:
                 cfa = dataclasses.replace(line.cfa, offset=args[0])
                 return dataclasses.replace(line, cfa=cfa)
-            case CallFrameInstruction.DW_CFA_def_cfa_offset_sf:
+            case CfaInstructionCode.DW_CFA_def_cfa_offset_sf:
                 cfa = dataclasses.replace(line.cfa, offset=args[0] * self.__cie.data_alignment_factor)
                 return dataclasses.replace(line, cfa=cfa)
-            case CallFrameInstruction.DW_CFA_def_cfa_expression:
+            case CfaInstructionCode.DW_CFA_def_cfa_expression:
                 cfa = CfaDefinition(0, 0, expression=args[0])
                 return dataclasses.replace(line, cfa=cfa)
 
             # Register_rules
-            case CallFrameInstruction.DW_CFA_undefined:
+            case CfaInstructionCode.DW_CFA_undefined:
                 reg = args[0]
                 new_rules = dict(line.register_rules)
                 new_rules[reg] = RegisterRule()
                 return dataclasses.replace(line, register_rules=new_rules)
-            case CallFrameInstruction.DW_CFA_undefined:
+            case CfaInstructionCode.DW_CFA_undefined:
                 reg = args[0]
                 new_rules = dict(line.register_rules)
                 new_rules[reg] = RegisterRule(instruction=instr)
                 return dataclasses.replace(line, register_rules=new_rules)
-            case (CallFrameInstruction.DW_CFA_offset |
-                  CallFrameInstruction.DW_CFA_offset_extended |
-                  CallFrameInstruction.DW_CFA_offset_extended_sf):
+            case (CfaInstructionCode.DW_CFA_offset |
+                  CfaInstructionCode.DW_CFA_offset_extended |
+                  CfaInstructionCode.DW_CFA_offset_extended_sf):
                 reg = args[0]
                 off = args[1] * self.__cie.data_alignment_factor
-                rr = RegisterRule(instr, offset=off)
+                rr = RegisterRule(instr.instruction, offset=off)
                 new_rules = dict(line.register_rules)
                 new_rules[reg] = rr
                 return dataclasses.replace(line, register_rules=new_rules)
-            case CallFrameInstruction.DW_CFA_register:
+            case CfaInstructionCode.DW_CFA_register:
                 reg = args[0]
                 where_stored_reg = args[1]
-                rr = RegisterRule(instr, reg=where_stored_reg)
+                rr = RegisterRule(instr.instruction, reg=where_stored_reg)
                 new_rules = dict(line.register_rules)
                 new_rules[reg] = rr
                 return dataclasses.replace(line, register_rules=new_rules)
-            case (CallFrameInstruction.DW_CFA_val_offset |
-                  CallFrameInstruction.DW_CFA_val_offset_sf):
+            case (CfaInstructionCode.DW_CFA_val_offset |
+                  CfaInstructionCode.DW_CFA_val_offset_sf):
                 raise NotImplementedError(str(instr))
-            case CallFrameInstruction.DW_CFA_expression:
+            case CfaInstructionCode.DW_CFA_expression:
                 reg = args[0]
-                rr = RegisterRule(instr, expression=args[1])
+                rr = RegisterRule(instr.instruction, expression=args[1])
                 new_rules = dict(line.register_rules)
                 new_rules[reg] = rr
                 return dataclasses.replace(line, register_rules=new_rules)
-            case (CallFrameInstruction.DW_CFA_restore |
-                  CallFrameInstruction.DW_CFA_restore_extended):
+            case (CfaInstructionCode.DW_CFA_restore |
+                  CfaInstructionCode.DW_CFA_restore_extended):
                 reg = args[0]
                 rr = self.__initial[-1].register_rules.get(reg, RegisterRule())
                 new_rules = dict(line.register_rules)
                 new_rules[reg] = rr
                 return dataclasses.replace(line, register_rules=new_rules)
 
-            case CallFrameInstruction.DW_CFA_remember_state:
+            case CfaInstructionCode.DW_CFA_remember_state:
                 self.__state_stack.append(line)
                 return line
 
-            case CallFrameInstruction.DW_CFA_restore_state:
+            case CfaInstructionCode.DW_CFA_restore_state:
                 state_line = self.__state_stack.pop()
                 return dataclasses.replace(line, cfa=state_line.cfa, register_rules=dict(state_line.register_rules))
 
-            case CallFrameInstruction.DW_CFA_nop | _:
+            case CfaInstructionCode.DW_CFA_nop | _:
                 return line
 
     def __iter__(self) -> Iterator[CallFrameLine]:
