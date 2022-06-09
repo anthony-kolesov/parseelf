@@ -958,74 +958,29 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
 
             # Register_rules
             case CfaInstructionCode.DW_CFA_undefined:
-                reg = args[0]
-                new_rules = ChainMap(line.register_rules).new_child()
-                new_rules[reg] = RegisterRule()
-                # Original implementation assumed that if register has a rule defined in$
-                # CIE, then the is always active at the start of the FDE table. However$
-                # the behaviour should be different - if FDE describes any rule for the$
-                # register then the initial rule is not applicable at all.$
-                # $
-                # I don't fully understand why it is so, and where in the specification$
-                # this is required - I've discovered this by comparing outputs with$
-                # objdump. This behaviour doesn't make a lot of sense to me, because it$
-                # above else also means that to properly build a table the parse should$
-                # read the table completely, since the register rule can be defined at any$
-                # moment in the middle of the FDE entry. It also creates weird tables,$
-                # like this:$
-                # $
-                # 00000018 00000010 0000001c FDE cie=00000000 pc=00001090..000010ca$
-                # LOC   CFA      ra$
-                # 00001090 esp+4    u$
-                # 00001094 esp+4    u$
-                # $
-                # So there are two lines, but they are identical, so it looks strange.$
-                # Nevertheless I will stick to the objdump behavior because I compare$
-                # parse_elf's output with it, and also the default assumption would be$
-                # that binutils developers are more likely to be correct than not.$
-                if reg in self.__initial.register_rules.keys():
-                    del self.__initial.register_rules[reg]
-                return dataclasses.replace(line, register_rules=new_rules)
+                return self.__set_rule(line, args[0], RegisterRule())
             case (CfaInstructionCode.DW_CFA_offset |
                   CfaInstructionCode.DW_CFA_offset_extended |
                   CfaInstructionCode.DW_CFA_offset_extended_sf):
-                reg = args[0]
-                off = args[1] * self.__cie.data_alignment_factor
-                rr = RegisterRule(instr.instruction, offset=off)
-                new_rules = ChainMap(line.register_rules).new_child()
-                new_rules[reg] = rr
-                if reg in self.__initial.register_rules.keys():
-                    del self.__initial.register_rules[reg]
-                return dataclasses.replace(line, register_rules=new_rules)
+                return self.__set_rule(
+                    line,
+                    args[0],
+                    RegisterRule(instr.instruction, offset=args[1] * self.__cie.data_alignment_factor)
+                )
             case CfaInstructionCode.DW_CFA_register:
-                reg = args[0]
-                where_stored_reg = args[1]
-                rr = RegisterRule(instr.instruction, reg=where_stored_reg)
-                new_rules = ChainMap(line.register_rules).new_child()
-                new_rules[reg] = rr
-                if reg in self.__initial.register_rules.keys():
-                    del self.__initial.register_rules[reg]
-                return dataclasses.replace(line, register_rules=new_rules)
+                return self.__set_rule(line, args[0], RegisterRule(instr.instruction, reg=args[1]))
             case (CfaInstructionCode.DW_CFA_val_offset |
                   CfaInstructionCode.DW_CFA_val_offset_sf):
                 raise NotImplementedError(str(instr))
             case CfaInstructionCode.DW_CFA_expression:
-                reg = args[0]
-                rr = RegisterRule(instr.instruction, expression=args[1])
-                new_rules = ChainMap(line.register_rules).new_child()
-                new_rules[reg] = rr
-                if reg in self.__initial.register_rules.keys():
-                    del self.__initial.register_rules[reg]
-                return dataclasses.replace(line, register_rules=new_rules)
+                return self.__set_rule(line, args[0], RegisterRule(instr.instruction, expression=args[1]))
             case (CfaInstructionCode.DW_CFA_restore |
                   CfaInstructionCode.DW_CFA_restore_extended):
-                reg = args[0]
-                rr = self.__initial.register_rules.get(reg, RegisterRule())
-                new_rules = ChainMap(line.register_rules).new_child()
-                new_rules[reg] = rr
-                if reg in self.__initial.register_rules.keys():
-                    del self.__initial.register_rules[reg]
-                return dataclasses.replace(line, register_rules=new_rules)
+                return self.__set_rule(
+                    line,
+                    args[0],
+                    self.__initial.register_rules.get(args[0], RegisterRule()),
+                )
 
             case CfaInstructionCode.DW_CFA_remember_state:
                 self.__state_stack.append(line)
@@ -1038,6 +993,43 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
 
             case CfaInstructionCode.DW_CFA_nop | _:
                 return line
+
+    def __set_rule(
+        self,
+        current_row: CallFrameLine,
+        regnum: int,
+        register_rule: RegisterRule,
+    ) -> CallFrameLine:
+        """Add a new register rule to the line.
+
+        The line itself is not modified - a modified copy is returned."""
+        new_rules = ChainMap(current_row.register_rules).new_child()
+        new_rules[regnum] = register_rule
+        # Original implementation assumed that if register has a rule defined in
+        # CIE, then the is always active at the start of the FDE table. However
+        # the behaviour should be different - if FDE describes any rule for the
+        # register then the initial rule is not applicable at all.
+        #
+        # I don't fully understand why it is so, and where in the specification
+        # this is required - I've discovered this by comparing outputs with
+        # objdump. This behaviour doesn't make a lot of sense to me, because it
+        # above else also means that to properly build a table the parse should
+        # read the table completely, since the register rule can be defined at any
+        # moment in the middle of the FDE entry. It also creates weird tables,
+        # like this:
+        #
+        # 00000018 00000010 0000001c FDE cie=00000000 pc=00001090..000010ca
+        # LOC   CFA        ra
+        # 00001090 esp+4    u
+        # 00001094 esp+4    u
+        #
+        # So there are two lines, but they are identical, so it looks strange.
+        # Nevertheless I will stick to the objdump behavior because I compare
+        # parse_elf's output with it, and also the default assumption would be
+        # that binutils developers are more likely to be correct than not.
+        if regnum in self.__initial.register_rules.keys():
+            del self.__initial.register_rules[regnum]
+        return dataclasses.replace(current_row, register_rules=new_rules)
 
     def __iter__(self) -> Iterator[CallFrameLine]:
         if len(self.__rows) and self.__initial.loc != self.__rows[0].loc:
