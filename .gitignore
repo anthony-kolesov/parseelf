@@ -1,5 +1,7 @@
 __pycache__
 .venv
 
+tests/test-gcc.x
+
 # Private own directories.
 examples/

@@ -2,7 +2,7 @@
 
 PYTHON="C:\\Python310\\python.exe"
 
-for f in test1 test-x86
+for f in test1 test-x86 test-gcc
 do
     file=$f.x
     $PYTHON ../parse_elf.py --file-header $file &> file-header.${f}.txt
@@ -16,12 +16,13 @@ do
     $PYTHON ../parse_elf.py --version-info $file &> version-info.${f}.txt
     $PYTHON ../parse_elf.py --string-dump=.dynstr --string-dump=.strtab --string-dump=.shstrtab $file &> strings.${f}.txt
     $PYTHON ../parse_elf.py --dwarf=frames $file &> dwarf-frames.${f}.txt
+    $PYTHON ../parse_elf.py --dwarf=frames-interp $file &> dwarf-frames-interp.${f}.txt
 done
 
-for f in test1 test-x86
+for f in test1 test-x86 test-gcc
 do
     # Not testing --notes because GNU_PROPERTY_TYPE_0 is currently not supported.
-    for t in file-header program-headers section-headers symbols relocs dynamic version-info strings dwarf-frames
+    for t in file-header program-headers section-headers symbols relocs dynamic version-info strings dwarf-frames dwarf-frames-interp
     do
         diff --strip-trailing-cr -uN ref/$t.$f.txt $t.$f.txt
     done

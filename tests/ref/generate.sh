@@ -3,7 +3,9 @@
 READELF=readelf
 OBJDUMP=objdump
 
-for f in test1 test-x86
+cp -L /usr/bin/gcc test-gcc
+
+for f in test1 test-x86 test-gcc
 do
     file=../${f}.x
     $READELF -W --file-header $file &> file-header.${f}.txt
@@ -19,5 +21,5 @@ do
     $OBJDUMP --dwarf $file &> dwarf.${f}.txt
     # Strip lines that I don't want to generate in parse_elf.py
     $OBJDUMP --dwarf=frames $file |& tail -n+3 > dwarf-frames.${f}.txt
-    $OBJDUMP --dwarf=frames-interp $file &> dwarf-frames-interp.${f}.txt
+    $OBJDUMP --dwarf=frames-interp $file |& tail -n+3 > dwarf-frames-interp.${f}.txt
 done
