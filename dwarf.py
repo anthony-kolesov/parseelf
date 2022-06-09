@@ -26,7 +26,7 @@ import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
 from typing import BinaryIO, Iterable, Iterator, Mapping, MutableMapping, \
-    NamedTuple, Optional, Sequence
+    NamedTuple, Optional, Sequence, TextIO
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
 
@@ -157,6 +157,44 @@ class StreamReader:
     @property
     def data_format(self) -> DataFormat:
         return self.__df
+
+
+class TextFormatter:
+    """A class to combine data format and architecture information for printing."""
+
+    def __init__(
+        self,
+        arch: ElfMachineType,
+        data_format: DataFormat,
+    ) -> None:
+        self.__df = data_format
+        self.__dw_regs = _dwarf_register_names.get(arch, {})
+
+    def get_dwarf_regname(self, regnum: int) -> str:
+        """Get a DWARF register name for the given register name."""
+        if regnum in self.__dw_regs:
+            return self.__dw_regs.get(regnum, '')
+        else:
+            return 'r' + str(regnum)
+
+    def get_full_regname(self, regnum: int) -> str:
+        """Get a full name of the register: number and DWARF name.
+
+        For example, for RAX on amd64 returns `r0 (rax)` and `r52` for some
+        unknown register number 52."""
+        if regnum in self.__dw_regs:
+            return f'r{regnum} ({self.get_dwarf_regname(regnum)})'
+        else:
+            return 'r' + str(regnum)
+
+    @property
+    def pointer_format(self) -> str:
+        """Return a format string for pointers in this architecture."""
+        return self.__df.bits.address_format
+
+    @property
+    def pointer_char_width(self) -> int:
+        return self.__df.bits.address_string_width
 
 
 class CfaInstructionCode(Enum):
@@ -859,7 +897,8 @@ class RegisterRule:
     offset: int = 0
     expression: Sequence[ExpressionOperation] = dataclasses.field(default_factory=tuple)
 
-    def objdump_format(self, arch: ElfMachineType) -> str:
+    def objdump_format(self, fmt: TextFormatter) -> str:
+        """Print this register rule as a table cell in style of objdump."""
         match self.instruction:
             case CfaInstructionCode.DW_CFA_undefined:
                 return 'u'
@@ -868,10 +907,7 @@ class RegisterRule:
             case CfaInstructionCode.DW_CFA_expression:
                 return 'exp'
             case CfaInstructionCode.DW_CFA_register:
-                regs = _dwarf_register_names.get(arch, {})
-                if self.reg in regs:
-                    return f'r{self.reg} ({regs[self.reg]})'
-                return f'r{self.reg}'
+                return fmt.get_full_regname(self.reg)
             case (CfaInstructionCode.DW_CFA_val_offset |
                   CfaInstructionCode.DW_CFA_val_offset_sf |
                   CfaInstructionCode.DW_CFA_val_expression |
@@ -1042,22 +1078,20 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             result.update(row.register_rules.keys())
         return tuple(sorted(result))
 
-    def objdump_format(self, arch: ElfMachineType, data_format: DataFormat) -> str:
+    def objdump_print(self, fmt: TextFormatter, stream: TextIO) -> None:
+        """Print this table to the provided stream."""
         # Don't print anything if there are no rows.
         if len(self.__rows) == 0:
-            return ''
+            return
 
         def rn(regnum: int) -> str:
             if regnum == self.__cie.return_address_register:
                 return 'ra'
-            regs = _dwarf_register_names.get(arch, {})
-            return regs.get(regnum, 'r' + str(regnum))
+            return fmt.get_dwarf_regname(regnum)
 
         regs = self.mentioned_registers()
-        result = []
-
         regnames = (format(rn(r), '5') for r in regs)
-        result.append(f'{"   LOC  ":{data_format.bits.address_string_width}} CFA      {" ".join(regnames)} ')
+        print(f'{"   LOC  ":{fmt.pointer_char_width}} CFA      {" ".join(regnames)} ', file=stream)
 
         for row in self:
             if len(row.cfa.expression):
@@ -1068,10 +1102,8 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             rules_str = []
             for regnum in regs:
                 rule = row.register_rules.get(regnum, RegisterRule())
-                rules_str.append(f'{rule.objdump_format(arch):5}')
-
-            result.append(f'{row.loc:{data_format.bits.address_format}} {cfa:8} {" ".join(rules_str)} ')
-        return '\n'.join(result)
+                rules_str.append(f'{rule.objdump_format(fmt):5}')
+            print(f'{row.loc:{fmt.pointer_format}} {cfa:8} {" ".join(rules_str)} ', file=stream)
 
     def copy(self, offset: int) -> 'CallFrameTable':
         r = CallFrameTable(self.__cie)

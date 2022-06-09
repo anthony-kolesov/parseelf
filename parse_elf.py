@@ -6,6 +6,7 @@
 from argparse import ArgumentParser
 from io import BytesIO
 from pathlib import Path
+import sys
 from typing import cast, Iterable, Sequence
 
 import dwarf
@@ -641,6 +642,7 @@ def print_dwarf_frames_interp(
             f'ra={cie.return_address_register}',
         ))
 
+    target_format = dwarf.TextFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
@@ -653,8 +655,7 @@ def print_dwarf_frames_interp(
         cie_cftable = dwarf.CallFrameTable(cie)
         while not init_instr_sr.at_eof:
             cie_cftable.do_instruction(dwarf.CfaInstruction.read(init_instr_sr))
-        if cie_cftable_str := cie_cftable.objdump_format(elf_obj.file_header.machine, elf_obj.data_format):
-            print(cie_cftable_str)
+        cie_cftable.objdump_print(target_format, sys.stdout)
         cie_cftables[cie.offset] = cie_cftable
 
         cie_records[cie.offset] = cie
@@ -680,8 +681,7 @@ def print_dwarf_frames_interp(
             fde_cftable = cie_cftables[fde.cie.offset].copy(pc_begin)
             while not fde_instr_sr.at_eof:
                 fde_cftable.do_instruction(dwarf.CfaInstruction.read(fde_instr_sr))
-            if fde_cftable_str := fde_cftable.objdump_format(elf_obj.file_header.machine, elf_obj.data_format):
-                print(fde_cftable_str)
+            fde_cftable.objdump_print(target_format, sys.stdout)
 
     # CieRecord.read doesn't return null record explicitly, but it is present in
     # the stream and objdump prints it.
