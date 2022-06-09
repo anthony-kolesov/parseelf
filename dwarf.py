@@ -20,11 +20,13 @@ __all__ = [
 ]
 
 import builtins
+from collections import ChainMap
 import collections.abc
 import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
-from typing import BinaryIO, Iterable, Iterator, Mapping, NamedTuple, Optional, Sequence
+from typing import BinaryIO, Iterable, Iterator, Mapping, MutableMapping, \
+    NamedTuple, Optional, Sequence
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
 
@@ -857,16 +859,18 @@ class RegisterRule:
     offset: int = 0
     expression: Sequence[ExpressionOperation] = dataclasses.field(default_factory=tuple)
 
-    def __str__(self) -> str:
+    def objdump_format(self, arch: ElfMachineType) -> str:
         match self.instruction:
             case CfaInstructionCode.DW_CFA_undefined:
                 return 'u'
             case CfaInstructionCode.DW_CFA_same_value:
-                # return 's'
-                raise NotImplementedError()
+                return 's'
             case CfaInstructionCode.DW_CFA_expression:
                 return 'exp'
             case CfaInstructionCode.DW_CFA_register:
+                regs = _dwarf_register_names.get(arch, {})
+                if self.reg in regs:
+                    return f'r{self.reg} ({regs[self.reg]})'
                 return f'r{self.reg}'
             case (CfaInstructionCode.DW_CFA_val_offset |
                   CfaInstructionCode.DW_CFA_val_offset_sf |
@@ -889,17 +893,18 @@ class CallFrameLine:
     # For now we don't support the latter.
     cfa: CfaDefinition = CfaDefinition(0, 0)
 
-    register_rules: Mapping[int, RegisterRule] = dataclasses.field(default_factory=dict)
+    register_rules: MutableMapping[int, RegisterRule] = dataclasses.field(default_factory=dict)
 
 
 class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
-    __initial: list[CallFrameLine]
+    __initial: CallFrameLine
+    "Initial register rules defined by CIE initial instructions."
     __rows: list[CallFrameLine]
     __state_stack: list[CallFrameLine]
     __cie: CieRecord
 
     def __init__(self, cie: CieRecord) -> None:
-        self.__initial = list()
+        self.__initial = CallFrameLine(0)
         self.__rows = list()
         self.__state_stack = list()
         self.__cie = cie
@@ -908,8 +913,7 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
         if instr.instruction == CfaInstructionCode.DW_CFA_nop:
             return
 
-        prev = (self.__rows[-1] if len(self.__rows)
-                else (self.__initial[-1] if len(self.__initial) else CallFrameLine(0)))
+        prev = self.__rows[-1] if len(self.__rows) else self.__initial
         n = self.__next_line(prev, instr)
         if n.loc != prev.loc or len(self.__rows) == 0:
             self.__rows.append(n)
@@ -955,13 +959,32 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
             # Register_rules
             case CfaInstructionCode.DW_CFA_undefined:
                 reg = args[0]
-                new_rules = dict(line.register_rules)
+                new_rules = ChainMap(line.register_rules).new_child()
                 new_rules[reg] = RegisterRule()
-                return dataclasses.replace(line, register_rules=new_rules)
-            case CfaInstructionCode.DW_CFA_undefined:
-                reg = args[0]
-                new_rules = dict(line.register_rules)
-                new_rules[reg] = RegisterRule(instruction=instr)
+                # Original implementation assumed that if register has a rule defined in$
+                # CIE, then the is always active at the start of the FDE table. However$
+                # the behaviour should be different - if FDE describes any rule for the$
+                # register then the initial rule is not applicable at all.$
+                # $
+                # I don't fully understand why it is so, and where in the specification$
+                # this is required - I've discovered this by comparing outputs with$
+                # objdump. This behaviour doesn't make a lot of sense to me, because it$
+                # above else also means that to properly build a table the parse should$
+                # read the table completely, since the register rule can be defined at any$
+                # moment in the middle of the FDE entry. It also creates weird tables,$
+                # like this:$
+                # $
+                # 00000018 00000010 0000001c FDE cie=00000000 pc=00001090..000010ca$
+                # LOC   CFA      ra$
+                # 00001090 esp+4    u$
+                # 00001094 esp+4    u$
+                # $
+                # So there are two lines, but they are identical, so it looks strange.$
+                # Nevertheless I will stick to the objdump behavior because I compare$
+                # parse_elf's output with it, and also the default assumption would be$
+                # that binutils developers are more likely to be correct than not.$
+                if reg in self.__initial.register_rules.keys():
+                    del self.__initial.register_rules[reg]
                 return dataclasses.replace(line, register_rules=new_rules)
             case (CfaInstructionCode.DW_CFA_offset |
                   CfaInstructionCode.DW_CFA_offset_extended |
@@ -969,15 +992,19 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
                 reg = args[0]
                 off = args[1] * self.__cie.data_alignment_factor
                 rr = RegisterRule(instr.instruction, offset=off)
-                new_rules = dict(line.register_rules)
+                new_rules = ChainMap(line.register_rules).new_child()
                 new_rules[reg] = rr
+                if reg in self.__initial.register_rules.keys():
+                    del self.__initial.register_rules[reg]
                 return dataclasses.replace(line, register_rules=new_rules)
             case CfaInstructionCode.DW_CFA_register:
                 reg = args[0]
                 where_stored_reg = args[1]
                 rr = RegisterRule(instr.instruction, reg=where_stored_reg)
-                new_rules = dict(line.register_rules)
+                new_rules = ChainMap(line.register_rules).new_child()
                 new_rules[reg] = rr
+                if reg in self.__initial.register_rules.keys():
+                    del self.__initial.register_rules[reg]
                 return dataclasses.replace(line, register_rules=new_rules)
             case (CfaInstructionCode.DW_CFA_val_offset |
                   CfaInstructionCode.DW_CFA_val_offset_sf):
@@ -985,15 +1012,19 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
             case CfaInstructionCode.DW_CFA_expression:
                 reg = args[0]
                 rr = RegisterRule(instr.instruction, expression=args[1])
-                new_rules = dict(line.register_rules)
+                new_rules = ChainMap(line.register_rules).new_child()
                 new_rules[reg] = rr
+                if reg in self.__initial.register_rules.keys():
+                    del self.__initial.register_rules[reg]
                 return dataclasses.replace(line, register_rules=new_rules)
             case (CfaInstructionCode.DW_CFA_restore |
                   CfaInstructionCode.DW_CFA_restore_extended):
                 reg = args[0]
-                rr = self.__initial[-1].register_rules.get(reg, RegisterRule())
-                new_rules = dict(line.register_rules)
+                rr = self.__initial.register_rules.get(reg, RegisterRule())
+                new_rules = ChainMap(line.register_rules).new_child()
                 new_rules[reg] = rr
+                if reg in self.__initial.register_rules.keys():
+                    del self.__initial.register_rules[reg]
                 return dataclasses.replace(line, register_rules=new_rules)
 
             case CfaInstructionCode.DW_CFA_remember_state:
@@ -1002,14 +1033,15 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
 
             case CfaInstructionCode.DW_CFA_restore_state:
                 state_line = self.__state_stack.pop()
-                return dataclasses.replace(line, cfa=state_line.cfa, register_rules=dict(state_line.register_rules))
+                new_rules = ChainMap(state_line.register_rules).new_child()
+                return dataclasses.replace(line, cfa=state_line.cfa, register_rules=new_rules)
 
             case CfaInstructionCode.DW_CFA_nop | _:
                 return line
 
     def __iter__(self) -> Iterator[CallFrameLine]:
-        if len(self.__initial) and (len(self.__rows) and self.__initial[-1].loc != self.__rows[0].loc):
-            yield from self.__initial
+        if len(self.__rows) and self.__initial.loc != self.__rows[0].loc:
+            yield self.__initial
         yield from self.__rows
 
     def mentioned_registers(self) -> Sequence[int]:
@@ -1044,14 +1076,16 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
             rules_str = []
             for regnum in regs:
                 rule = row.register_rules.get(regnum, RegisterRule())
-                rules_str.append(f'{str(rule):5}')
+                rules_str.append(f'{rule.objdump_format(arch):5}')
 
             result.append(f'{row.loc:{data_format.bits.address_format}} {cfa:8} {" ".join(rules_str)} ')
         return '\n'.join(result)
 
     def copy(self, offset: int) -> 'CallFrameTable':
         r = CallFrameTable(self.__cie)
-        r.__initial = list(self.__rows)
-        if len(r.__initial):
-            r.__initial[-1] = dataclasses.replace(r.__initial[-1], loc=offset)
+        r.__initial = CallFrameLine(
+            loc=offset,
+            cfa=self.__rows[-1].cfa,
+            register_rules=dict[int, RegisterRule](self.__rows[-1].register_rules),
+        )
         return r
