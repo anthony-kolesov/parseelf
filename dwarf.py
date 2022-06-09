@@ -15,7 +15,7 @@ __all__ = [
     'FdeRecord',
     'CfaDefinition',
     'RegisterRule',
-    'CallFrameLine',
+    'CallFrameTableRow',
     'CallFrameTable',
 ]
 
@@ -839,7 +839,7 @@ _dwarf_register_names = {
 
 @dataclasses.dataclass(frozen=True)
 class CfaDefinition:
-    """A class to represent a CFA definition for the frame's line."""
+    """A class to represent a CFA definition for the frame's row."""
     reg: int
     offset: int
     _: dataclasses.KW_ONLY
@@ -883,10 +883,10 @@ class RegisterRule:
 
 
 @dataclasses.dataclass(frozen=True)
-class CallFrameLine:
-    # Each line is identified by a PC value as a unique key (aka LOC).
-    # Each line has a defined CFA value.
-    # Each line has at least one register definition.
+class CallFrameTableRow:
+    # Each row is identified by a PC value as a unique key (aka LOC).
+    # Each row has a defined CFA value.
+    # Each row has at least one register definition.
     loc: int
 
     # CFA could be: reg+offset (most often) or an expression.
@@ -896,15 +896,15 @@ class CallFrameLine:
     register_rules: MutableMapping[int, RegisterRule] = dataclasses.field(default_factory=dict)
 
 
-class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
-    __initial: CallFrameLine
+class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
+    __initial: CallFrameTableRow
     "Initial register rules defined by CIE initial instructions."
-    __rows: list[CallFrameLine]
-    __state_stack: list[CallFrameLine]
+    __rows: list[CallFrameTableRow]
+    __state_stack: list[CallFrameTableRow]
     __cie: CieRecord
 
     def __init__(self, cie: CieRecord) -> None:
-        self.__initial = CallFrameLine(0)
+        self.__initial = CallFrameTableRow(0)
         self.__rows = list()
         self.__state_stack = list()
         self.__cie = cie
@@ -913,96 +913,96 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
         if instr.instruction == CfaInstructionCode.DW_CFA_nop:
             return
 
-        prev = self.__rows[-1] if len(self.__rows) else self.__initial
-        n = self.__next_line(prev, instr)
-        if n.loc != prev.loc or len(self.__rows) == 0:
-            self.__rows.append(n)
+        current_row = self.__rows[-1] if len(self.__rows) else self.__initial
+        next_row = self.__next_row(current_row, instr)
+        if next_row.loc != current_row.loc or len(self.__rows) == 0:
+            self.__rows.append(next_row)
         else:
-            self.__rows[-1] = n
+            self.__rows[-1] = next_row
 
-    def __next_line(
+    def __next_row(
         self,
-        line: CallFrameLine,
+        current_row: CallFrameTableRow,
         instr: CfaInstruction,
-    ) -> 'CallFrameLine':
+    ) -> 'CallFrameTableRow':
         args = instr.operands
         match instr.instruction:
             # Location Instructions.
             case CfaInstructionCode.DW_CFA_set_loc:
-                return dataclasses.replace(line, loc=args[0])
+                return dataclasses.replace(current_row, loc=args[0])
             case (CfaInstructionCode.DW_CFA_advance_loc |
                   CfaInstructionCode.DW_CFA_advance_loc1 |
                   CfaInstructionCode.DW_CFA_advance_loc2 |
                   CfaInstructionCode.DW_CFA_advance_loc4):
-                new_loc = line.loc + args[0] * self.__cie.code_alignment_factor
-                return dataclasses.replace(line, loc=new_loc)
+                new_loc = current_row.loc + args[0] * self.__cie.code_alignment_factor
+                return dataclasses.replace(current_row, loc=new_loc)
 
             # CFA Definition Instructions.
             case CfaInstructionCode.DW_CFA_def_cfa:
-                return dataclasses.replace(line, cfa=CfaDefinition(args[0], args[1]))
+                return dataclasses.replace(current_row, cfa=CfaDefinition(args[0], args[1]))
             case CfaInstructionCode.DW_CFA_def_cfa_sf:
                 cfa = CfaDefinition(args[0], args[1] * self.__cie.data_alignment_factor)
-                return dataclasses.replace(line, cfa=cfa)
+                return dataclasses.replace(current_row, cfa=cfa)
             case CfaInstructionCode.DW_CFA_def_cfa_register:
-                cfa = dataclasses.replace(line.cfa, reg=args[0])
-                return dataclasses.replace(line, cfa=cfa)
+                cfa = dataclasses.replace(current_row.cfa, reg=args[0])
+                return dataclasses.replace(current_row, cfa=cfa)
             case CfaInstructionCode.DW_CFA_def_cfa_offset:
-                cfa = dataclasses.replace(line.cfa, offset=args[0])
-                return dataclasses.replace(line, cfa=cfa)
+                cfa = dataclasses.replace(current_row.cfa, offset=args[0])
+                return dataclasses.replace(current_row, cfa=cfa)
             case CfaInstructionCode.DW_CFA_def_cfa_offset_sf:
-                cfa = dataclasses.replace(line.cfa, offset=args[0] * self.__cie.data_alignment_factor)
-                return dataclasses.replace(line, cfa=cfa)
+                cfa = dataclasses.replace(current_row.cfa, offset=args[0] * self.__cie.data_alignment_factor)
+                return dataclasses.replace(current_row, cfa=cfa)
             case CfaInstructionCode.DW_CFA_def_cfa_expression:
                 cfa = CfaDefinition(0, 0, expression=args[0])
-                return dataclasses.replace(line, cfa=cfa)
+                return dataclasses.replace(current_row, cfa=cfa)
 
             # Register_rules
             case CfaInstructionCode.DW_CFA_undefined:
-                return self.__set_rule(line, args[0], RegisterRule())
+                return self.__set_rule(current_row, args[0], RegisterRule())
             case (CfaInstructionCode.DW_CFA_offset |
                   CfaInstructionCode.DW_CFA_offset_extended |
                   CfaInstructionCode.DW_CFA_offset_extended_sf):
                 return self.__set_rule(
-                    line,
+                    current_row,
                     args[0],
                     RegisterRule(instr.instruction, offset=args[1] * self.__cie.data_alignment_factor)
                 )
             case CfaInstructionCode.DW_CFA_register:
-                return self.__set_rule(line, args[0], RegisterRule(instr.instruction, reg=args[1]))
+                return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, reg=args[1]))
             case (CfaInstructionCode.DW_CFA_val_offset |
                   CfaInstructionCode.DW_CFA_val_offset_sf):
                 raise NotImplementedError(str(instr))
             case CfaInstructionCode.DW_CFA_expression:
-                return self.__set_rule(line, args[0], RegisterRule(instr.instruction, expression=args[1]))
+                return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, expression=args[1]))
             case (CfaInstructionCode.DW_CFA_restore |
                   CfaInstructionCode.DW_CFA_restore_extended):
                 return self.__set_rule(
-                    line,
+                    current_row,
                     args[0],
                     self.__initial.register_rules.get(args[0], RegisterRule()),
                 )
 
             case CfaInstructionCode.DW_CFA_remember_state:
-                self.__state_stack.append(line)
-                return line
+                self.__state_stack.append(current_row)
+                return current_row
 
             case CfaInstructionCode.DW_CFA_restore_state:
-                state_line = self.__state_stack.pop()
-                new_rules = ChainMap(state_line.register_rules).new_child()
-                return dataclasses.replace(line, cfa=state_line.cfa, register_rules=new_rules)
+                stored_row = self.__state_stack.pop()
+                new_rules = ChainMap(stored_row.register_rules).new_child()
+                return dataclasses.replace(current_row, cfa=stored_row.cfa, register_rules=new_rules)
 
             case CfaInstructionCode.DW_CFA_nop | _:
-                return line
+                return current_row
 
     def __set_rule(
         self,
-        current_row: CallFrameLine,
+        current_row: CallFrameTableRow,
         regnum: int,
         register_rule: RegisterRule,
-    ) -> CallFrameLine:
-        """Add a new register rule to the line.
+    ) -> CallFrameTableRow:
+        """Add a new register rule to the row.
 
-        The line itself is not modified - a modified copy is returned."""
+        The row itself is not modified - a modified copy is returned."""
         new_rules = ChainMap(current_row.register_rules).new_child()
         new_rules[regnum] = register_rule
         # Original implementation assumed that if register has a rule defined in
@@ -1031,7 +1031,7 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
             del self.__initial.register_rules[regnum]
         return dataclasses.replace(current_row, register_rules=new_rules)
 
-    def __iter__(self) -> Iterator[CallFrameLine]:
+    def __iter__(self) -> Iterator[CallFrameTableRow]:
         if len(self.__rows) and self.__initial.loc != self.__rows[0].loc:
             yield self.__initial
         yield from self.__rows
@@ -1075,7 +1075,7 @@ class CallFrameTable(collections.abc.Iterable[CallFrameLine]):
 
     def copy(self, offset: int) -> 'CallFrameTable':
         r = CallFrameTable(self.__cie)
-        r.__initial = CallFrameLine(
+        r.__initial = CallFrameTableRow(
             loc=offset,
             cfa=self.__rows[-1].cfa,
             register_rules=dict[int, RegisterRule](self.__rows[-1].register_rules),
