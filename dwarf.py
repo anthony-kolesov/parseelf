@@ -1099,6 +1099,13 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             print(f'{row.loc:{fmt.pointer_format}} {cfa:8} {" ".join(rules_str)} ', file=stream)
 
     def copy(self, offset: int) -> 'CallFrameTable':
+        """Create a new table that uses current as initial.
+
+        This function makes sense to create individual frame tables based on
+        FDE, assuming that self is a table created from CIE initial
+        instructions. The ruleset of the current table will become initial
+        ruleset of the new table, and the new table's frames offset will be set
+        to the value specified in arguments."""
         r = CallFrameTable(self.__cie)
         r.__initial = CallFrameTableRow(
             loc=offset,
