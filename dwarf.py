@@ -267,8 +267,7 @@ class CfaInstruction(NamedTuple):
 
     def objdump_format(
             self,
-            arch: ElfMachineType,
-            data_format: DataFormat,
+            fmt: TextFormatter,
             cie: 'CieRecord',
             frame_pc: int,
     ) -> str:
@@ -278,12 +277,6 @@ class CfaInstruction(NamedTuple):
         # That is not a good function and needs a redesign pass.
         caf = cie.code_alignment_factor
         daf = cie.data_alignment_factor
-        regs = _dwarf_register_names.get(arch, {})
-
-        def rn(regnum: int) -> str:
-            if regnum in regs:
-                return f'r{regnum} ({regs[regnum]})'
-            return f'r{regnum}'
 
         name = self.instruction.name
         args = self.operands
@@ -294,48 +287,48 @@ class CfaInstruction(NamedTuple):
                   CfaInstructionCode.DW_CFA_advance_loc1 |
                   CfaInstructionCode.DW_CFA_advance_loc2 |
                   CfaInstructionCode.DW_CFA_advance_loc4):
-                return f'{name}: {args[0] * caf} to {frame_pc:{data_format.bits.address_format}}'
+                return f'{name}: {args[0] * caf} to {frame_pc:{fmt.pointer_format}}'
 
             case CfaInstructionCode.DW_CFA_def_cfa:
-                return f'{name}: {rn(args[0])} ofs {args[1]}'
+                return f'{name}: {fmt.get_full_regname(args[0])} ofs {args[1]}'
             case CfaInstructionCode.DW_CFA_def_cfa_sf:
-                return f'{name}: {rn(args[0])} ofs {args[1] * daf}'
+                return f'{name}: {fmt.get_full_regname(args[0])} ofs {args[1] * daf}'
             case CfaInstructionCode.DW_CFA_def_cfa_register:
-                return f'{name}: {rn(args[0])}'
+                return f'{name}: {fmt.get_full_regname(args[0])}'
             case CfaInstructionCode.DW_CFA_def_cfa_offset:
                 return f'{name}: {args[0]}'
             case CfaInstructionCode.DW_CFA_def_cfa_offset_sf:
                 return f'{name}: {args[0] * daf}'
             case CfaInstructionCode.DW_CFA_def_cfa_expression:
-                expr_str = ExpressionOperation.objdump_format_seq(arch, args[0])
+                expr_str = ExpressionOperation.objdump_format_seq(fmt, args[0])
                 return f'{name} ({expr_str})'
 
             case (CfaInstructionCode.DW_CFA_undefined |
                   CfaInstructionCode.DW_CFA_same_value):
-                return f'{name}: {rn(args[0])}'
+                return f'{name}: {fmt.get_full_regname(args[0])}'
 
             case (CfaInstructionCode.DW_CFA_offset |
                   CfaInstructionCode.DW_CFA_offset_extended |
                   CfaInstructionCode.DW_CFA_offset_extended_sf):
-                return f'{name}: {rn(args[0])} at cfa{args[1] * daf:+}'
+                return f'{name}: {fmt.get_full_regname(args[0])} at cfa{args[1] * daf:+}'
 
             case (CfaInstructionCode.DW_CFA_val_offset |
                   CfaInstructionCode.DW_CFA_val_offset_sf):
-                return f'{name}: {rn(args[0])} at cfa{args[1] * daf:+}'
+                return f'{name}: {fmt.get_full_regname(args[0])} at cfa{args[1] * daf:+}'
 
             case CfaInstructionCode.DW_CFA_register:
-                return f'{name}: {rn(args[0])} in {rn(args[1])}'
+                return f'{name}: {fmt.get_full_regname(args[0])} in {fmt.get_full_regname(args[1])}'
 
             case CfaInstructionCode.DW_CFA_expression:
-                expr_str = ExpressionOperation.objdump_format_seq(arch, args[1])
-                return f'{name}: {rn(args[0])} ({expr_str})'
+                expr_str = ExpressionOperation.objdump_format_seq(fmt, args[1])
+                return f'{name}: {fmt.get_full_regname(args[0])} ({expr_str})'
             case CfaInstructionCode.DW_CFA_val_expression:
-                expr_str = ExpressionOperation.objdump_format_seq(arch, args[1])
-                return f'{name}: {rn(args[0])} ({expr_str})'
+                expr_str = ExpressionOperation.objdump_format_seq(fmt, args[1])
+                return f'{name}: {fmt.get_full_regname(args[0])} ({expr_str})'
 
             case (CfaInstructionCode.DW_CFA_restore |
                   CfaInstructionCode.DW_CFA_restore_extended):
-                return f'{name}: {rn(args[0])}'
+                return f'{name}: {fmt.get_full_regname(args[0])}'
 
             case (CfaInstructionCode.DW_CFA_remember_state |
                   CfaInstructionCode.DW_CFA_restore_state |
@@ -532,16 +525,15 @@ class ExpressionOperation(NamedTuple):
 
     def objdump_format(
         self,
-        arch: ElfMachineType,
+        fmt: TextFormatter,
     ) -> str:
         """Format operation in the style of objdump.
 
         :params args: Operation operands."""
-        regs = _dwarf_register_names.get(arch, {})
-
         def rn(regnum: int) -> str:
-            if regnum in regs:
-                return f'reg{regnum} ({regs[regnum]})'
+            dwname = fmt.get_dwarf_regname(regnum)
+            if dwname:
+                return f'reg{regnum} ({dwname})'
             return f'reg{regnum}'
 
         if ExpressionOperationCode.DW_OP_reg0.value < self.operation.value < ExpressionOperationCode.DW_OP_reg31.value:
@@ -558,10 +550,10 @@ class ExpressionOperation(NamedTuple):
 
     @staticmethod
     def objdump_format_seq(
-        arch: ElfMachineType,
+        fmt: TextFormatter,
         operations: Iterable['ExpressionOperation'],
     ) -> str:
-        return '; '.join(op.objdump_format(arch) for op in operations)
+        return '; '.join(op.objdump_format(fmt) for op in operations)
 
 
 class DW_EH_PE_ValueType(Enum):

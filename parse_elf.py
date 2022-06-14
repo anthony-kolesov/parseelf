@@ -556,6 +556,7 @@ def print_dwarf_frames(
     print('\nContents of the .eh_frame section:\n')
 
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
+    target_format = dwarf.TextFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
     while cie := dwarf.CieRecord.read(sr):
@@ -570,12 +571,7 @@ def print_dwarf_frames(
         init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(cie.initial_instructions))
         while not init_instr_sr.at_eof:
             cfinstr = dwarf.CfaInstruction.read(init_instr_sr)
-            print('  ' + cfinstr.objdump_format(
-                elf_obj.file_header.machine,
-                elf_obj.data_format,
-                cie,
-                0,
-            ))
+            print('  ' + cfinstr.objdump_format(target_format, cie, 0))
 
         cie_records[cie.offset] = cie
         for fde in dwarf.FdeRecord.read(sr, cie_records):
@@ -611,12 +607,7 @@ def print_dwarf_frames(
                     frame_pc += fde_instr.operands[0] * cie.code_alignment_factor
                 elif fde_instr == dwarf.CfaInstructionCode.DW_CFA_set_loc:
                     frame_pc = fde_instr.operands[0]
-                print('  ' + fde_instr.objdump_format(
-                    elf_obj.file_header.machine,
-                    elf_obj.data_format,
-                    cie,
-                    frame_pc,
-                ))
+                print('  ' + fde_instr.objdump_format(target_format, cie, frame_pc))
     # CieRecord.read doesn't return null record explicitly, but it is present in
     # the stream and objdump prints it.
     print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
