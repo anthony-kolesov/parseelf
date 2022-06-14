@@ -5,6 +5,7 @@
 
 __all__ = [
     'StreamReader',
+    'TargetFormatter',
     'CfaInstructionCode',
     'CfaInstruction',
     'ExpressionOperationCode',
@@ -159,7 +160,7 @@ class StreamReader:
         return self.__df
 
 
-class TextFormatter:
+class TargetFormatter:
     """A class to combine data format and architecture information for printing."""
 
     def __init__(
@@ -267,7 +268,7 @@ class CfaInstruction(NamedTuple):
 
     def objdump_format(
             self,
-            fmt: TextFormatter,
+            fmt: TargetFormatter,
             cie: 'CieRecord',
             frame_pc: int,
     ) -> str:
@@ -525,7 +526,7 @@ class ExpressionOperation(NamedTuple):
 
     def objdump_format(
         self,
-        fmt: TextFormatter,
+        fmt: TargetFormatter,
     ) -> str:
         """Format operation in the style of objdump.
 
@@ -550,7 +551,7 @@ class ExpressionOperation(NamedTuple):
 
     @staticmethod
     def objdump_format_seq(
-        fmt: TextFormatter,
+        fmt: TargetFormatter,
         operations: Iterable['ExpressionOperation'],
     ) -> str:
         return '; '.join(op.objdump_format(fmt) for op in operations)
@@ -889,7 +890,7 @@ class RegisterRule:
     offset: int = 0
     expression: Sequence[ExpressionOperation] = dataclasses.field(default_factory=tuple)
 
-    def objdump_format(self, fmt: TextFormatter) -> str:
+    def objdump_format(self, fmt: TargetFormatter) -> str:
         """Print this register rule as a table cell in style of objdump."""
         match self.instruction:
             case CfaInstructionCode.DW_CFA_undefined:
@@ -1070,7 +1071,7 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             result.update(row.register_rules.keys())
         return tuple(sorted(result))
 
-    def objdump_print(self, fmt: TextFormatter, stream: TextIO) -> None:
+    def objdump_print(self, fmt: TargetFormatter, stream: TextIO) -> None:
         """Print this table to the provided stream."""
         # Don't print anything if there are no rows.
         if len(self.__rows) == 0:

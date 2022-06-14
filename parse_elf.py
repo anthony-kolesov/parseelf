@@ -556,7 +556,7 @@ def print_dwarf_frames(
     print('\nContents of the .eh_frame section:\n')
 
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
-    target_format = dwarf.TextFormatter(elf_obj.file_header.machine, elf_obj.data_format)
+    target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
     while cie := dwarf.CieRecord.read(sr):
@@ -633,7 +633,7 @@ def print_dwarf_frames_interp(
             f'ra={cie.return_address_register}',
         ))
 
-    target_format = dwarf.TextFormatter(elf_obj.file_header.machine, elf_obj.data_format)
+    target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
