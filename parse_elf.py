@@ -547,6 +547,11 @@ def string_dump(
         print()
 
 
+def _format_address_range(start: int, end: int, bits: elf.ElfClass) -> str:
+    """Format an address range as {start}..{end}"""
+    return f'{start:{bits.address_format}}..{end:{bits.address_format}}'
+
+
 def print_dwarf_frames(
     elf_obj: elf.Elf,
 ) -> None:
@@ -567,21 +572,14 @@ def print_dwarf_frames(
         for cfinstr in dwarf.CfaInstruction.read(init_instr_sr):
             print('  ' + cfinstr.objdump_format(fmt, cie, 0))
 
-    def print_fde(fde: dwarf.FdeRecord, fmt: dwarf.TargetFormatter, section_offset: int) -> None:
-        # Meaning of pc_begin depends on CIE augmentation, but for now only one
-        # type of adjust is supported.
-        assert fde.cie.augmentation_info.fde_pointer_adjust == dwarf.DW_EH_PE_Relation.pcrel, \
-            'This type of DW_EH_PE relation is not supported.'
-
-        pc_begin = section_offset + fde.pc_begin_offset + fde.pc_begin
-        pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
-        pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
+    def print_fde(fde: dwarf.FdeRecord, fmt: dwarf.TargetFormatter, section_address: int) -> None:
+        pc_begin = fde.abs_pc_begin(section_address)
         print(
             f'\n{fde.offset:08x}',
             format(fde.size, elf_obj.elf_class.address_format),
             format(fde.cie_ptr, '08x'),
             f'FDE cie={fde.cie.offset:08x}',
-            f'pc={pc_begin_str}..{pc_end_str}'
+            f'pc={_format_address_range(pc_begin, pc_begin + fde.pc_range, elf_obj.elf_class)}'
         )
         if fde.augmentation_data:
             print('  Augmentation data:'.ljust(24), fde.augmentation_data.hex(bytes_per_sep=1, sep=' '))
@@ -638,23 +636,15 @@ def print_dwarf_frames_interp(
         fde: dwarf.FdeRecord,
         cftable: dwarf.CallFrameTable,
         fmt: dwarf.TargetFormatter,
-        section_offset: int,
+        section_address: int,
     ) -> None:
-        # Meaning of pc_begin depends on CIE augmentation.
-        match fde.cie.augmentation_info.fde_pointer_adjust:
-            case dwarf.DW_EH_PE_Relation.pcrel:
-                pc_begin = section_offset + fde.pc_begin_offset + fde.pc_begin
-            case _:
-                raise NotImplementedError('This type of DW_EH_PE relation is not supported.')
-
-        pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
-        pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
+        pc_begin = fde.abs_pc_begin(section_address)
         print(
             f'\n{fde.offset:08x}',
             format(fde.size, elf_obj.elf_class.address_format),
             format(fde.cie_ptr, '08x'),
             f'FDE cie={fde.cie.offset:08x}',
-            f'pc={pc_begin_str}..{pc_end_str}'
+            f'pc={_format_address_range(pc_begin, pc_begin + fde.pc_range, elf_obj.elf_class)}'
         )
 
         fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))

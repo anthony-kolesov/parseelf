@@ -856,6 +856,16 @@ class FdeRecord:
         # terminator.
         sr.set_abs_position(fde_start)
 
+    def abs_pc_begin(self, section_address: int = 0) -> int:
+        """Evaluate real absolute value of PC begin based on augmentation.
+
+        :param section_address: An address of the .eh_frame section in the memory."""
+        # Meaning of pc_begin depends on CIE augmentation, but for now only one
+        # type of adjust is supported.
+        assert self.cie.augmentation_info.fde_pointer_adjust == DW_EH_PE_Relation.pcrel, \
+            'This type of DW_EH_PE relation is not supported.'
+        return section_address + self.pc_begin_offset + self.pc_begin
+
 
 def read_eh_frame(sr: StreamReader) -> Iterator[CieRecord | FdeRecord]:
     """Read an .eh_frame section as a sequence of CIE and FDE records.
