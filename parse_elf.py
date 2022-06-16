@@ -564,8 +564,7 @@ def print_dwarf_frames(
         print('  Return address column:'.ljust(24), cie.return_address_register)
         print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex(bytes_per_sep=1, sep=' '))
         init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(cie.initial_instructions))
-        while not init_instr_sr.at_eof:
-            cfinstr = dwarf.CfaInstruction.read(init_instr_sr)
+        for cfinstr in dwarf.CfaInstruction.read(init_instr_sr):
             print('  ' + cfinstr.objdump_format(fmt, cie, 0))
 
     def print_fde(fde: dwarf.FdeRecord, fmt: dwarf.TargetFormatter, section_offset: int) -> None:
@@ -589,8 +588,7 @@ def print_dwarf_frames(
 
         fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
         frame_pc = pc_begin
-        while not fde_instr_sr.at_eof:
-            fde_instr = dwarf.CfaInstruction.read(fde_instr_sr)
+        for fde_instr in dwarf.CfaInstruction.read(fde_instr_sr):
             if fde_instr.instruction in (
                 dwarf.CfaInstructionCode.DW_CFA_advance_loc,
                 dwarf.CfaInstructionCode.DW_CFA_advance_loc1,
@@ -598,7 +596,7 @@ def print_dwarf_frames(
                 dwarf.CfaInstructionCode.DW_CFA_advance_loc4,
             ):
                 frame_pc += fde_instr.operands[0] * fde.cie.code_alignment_factor
-            elif fde_instr == dwarf.CfaInstructionCode.DW_CFA_set_loc:
+            elif fde_instr.instruction == dwarf.CfaInstructionCode.DW_CFA_set_loc:
                 frame_pc = fde_instr.operands[0]
             print('  ' + fde_instr.objdump_format(fmt, fde.cie, frame_pc))
 
@@ -661,8 +659,7 @@ def print_dwarf_frames_interp(
 
         fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
         fde_cftable = cftable.copy(pc_begin)
-        while not fde_instr_sr.at_eof:
-            fde_cftable.do_instruction(dwarf.CfaInstruction.read(fde_instr_sr))
+        fde_cftable.do_instruction(*dwarf.CfaInstruction.read(fde_instr_sr))
         fde_cftable.objdump_print(fmt, sys.stdout)
 
     target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
@@ -675,8 +672,7 @@ def print_dwarf_frames_interp(
             print(format_cie_header(entry))
             init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(entry.initial_instructions))
             cie_cftable = dwarf.CallFrameTable(entry)
-            while not init_instr_sr.at_eof:
-                cie_cftable.do_instruction(dwarf.CfaInstruction.read(init_instr_sr))
+            cie_cftable.do_instruction(*dwarf.CfaInstruction.read(init_instr_sr))
             cie_cftable.objdump_print(target_format, sys.stdout)
             cie_cftables[entry.offset] = cie_cftable
         else:

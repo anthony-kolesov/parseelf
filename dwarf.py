@@ -243,30 +243,33 @@ class CfaInstruction(NamedTuple):
     operands: tuple
 
     @staticmethod
-    def read(sr: StreamReader) -> 'CfaInstruction':
-        b = sr.uint1()
-        # Argument is inside of opcode
-        match b >> 6:
-            case 0:
-                # 'Normal' instructions.
-                instr = CfaInstructionCode(b & 0x3F)
-                op_values = tuple(operand_type(sr) for operand_type in instr.operand_types)
-                match instr:
-                    case CfaInstructionCode.DW_CFA_def_cfa_expression:
-                        expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[0]))))
-                        return CfaInstruction(instr, (expr, ))
-                    case CfaInstructionCode.DW_CFA_expression | CfaInstructionCode.DW_CFA_val_expression:
-                        expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[1]))))
-                        return CfaInstruction(instr, (op_values[0], expr))
-                return CfaInstruction(instr, op_values)
-            case 1:
-                return CfaInstruction(CfaInstructionCode.DW_CFA_advance_loc, (b & 0x3F,))
-            case 2:
-                return CfaInstruction(CfaInstructionCode.DW_CFA_offset, (b & 0x3F, sr.uleb128()))
-            case 3:
-                return CfaInstruction(CfaInstructionCode.DW_CFA_restore, (b & 0x3F,))
-            case _:
-                raise NotImplementedError('Unsupported call frame instruction.')
+    def read(sr: StreamReader) -> Iterator['CfaInstruction']:
+        """Read a sequence of CFA instructions from a stream reader until reader's end."""
+        while not sr.at_eof:
+            b = sr.uint1()
+            # Argument is inside of opcode
+            match b >> 6:
+                case 0:
+                    # 'Normal' instructions.
+                    instr = CfaInstructionCode(b & 0x3F)
+                    op_values = tuple(operand_type(sr) for operand_type in instr.operand_types)
+                    match instr:
+                        case CfaInstructionCode.DW_CFA_def_cfa_expression:
+                            expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[0]))))
+                            yield CfaInstruction(instr, (expr, ))
+                        case CfaInstructionCode.DW_CFA_expression | CfaInstructionCode.DW_CFA_val_expression:
+                            expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[1]))))
+                            yield CfaInstruction(instr, (op_values[0], expr))
+                        case _:
+                            yield CfaInstruction(instr, op_values)
+                case 1:
+                    yield CfaInstruction(CfaInstructionCode.DW_CFA_advance_loc, (b & 0x3F,))
+                case 2:
+                    yield CfaInstruction(CfaInstructionCode.DW_CFA_offset, (b & 0x3F, sr.uleb128()))
+                case 3:
+                    yield CfaInstruction(CfaInstructionCode.DW_CFA_restore, (b & 0x3F,))
+                case _:
+                    raise NotImplementedError('Unsupported call frame instruction.')
 
     def objdump_format(
             self,
@@ -981,16 +984,18 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
         self.__state_stack = list()
         self.__cie = cie
 
-    def do_instruction(self, instr: CfaInstruction) -> None:
-        if instr.instruction == CfaInstructionCode.DW_CFA_nop:
-            return
+    def do_instruction(self, *instructions: CfaInstruction) -> None:
+        """Execute specified instructions on the call frame table."""
+        for instr in instructions:
+            if instr.instruction == CfaInstructionCode.DW_CFA_nop:
+                continue
 
-        current_row = self.__rows[-1] if len(self.__rows) else self.__initial
-        next_row = self.__next_row(current_row, instr)
-        if next_row.loc != current_row.loc or len(self.__rows) == 0:
-            self.__rows.append(next_row)
-        else:
-            self.__rows[-1] = next_row
+            current_row = self.__rows[-1] if len(self.__rows) else self.__initial
+            next_row = self.__next_row(current_row, instr)
+            if next_row.loc != current_row.loc or len(self.__rows) == 0:
+                self.__rows.append(next_row)
+            else:
+                self.__rows[-1] = next_row
 
     def __next_row(
         self,
