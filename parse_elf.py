@@ -576,7 +576,7 @@ def print_dwarf_frames(
         cie_records[cie.offset] = cie
         for fde in dwarf.FdeRecord.read(sr, cie_records):
             # Meaning of pc_begin depends on CIE augmentation.
-            match cie.fde_pointer_adjust:
+            match cie.augmentation_info.fde_pointer_adjust:
                 case dwarf.DW_EH_PE_Relation.pcrel:
                     pc_begin = eh_frame.header.address + fde.pc_begin_offset + fde.pc_begin
                 case _:
@@ -652,7 +652,7 @@ def print_dwarf_frames_interp(
         cie_records[cie.offset] = cie
         for fde in dwarf.FdeRecord.read(sr, cie_records):
             # Meaning of pc_begin depends on CIE augmentation.
-            match cie.fde_pointer_adjust:
+            match cie.augmentation_info.fde_pointer_adjust:
                 case dwarf.DW_EH_PE_Relation.pcrel:
                     pc_begin = eh_frame.header.address + fde.pc_begin_offset + fde.pc_begin
                 case _:

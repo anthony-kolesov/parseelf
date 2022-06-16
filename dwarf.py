@@ -12,6 +12,7 @@ __all__ = [
     'ExpressionOperation',
     'DW_EH_PE_ValueType',
     'DW_EH_PE_Relation',
+    'CieAugmentation',
     'CieRecord',
     'FdeRecord',
     'CfaDefinition',
@@ -617,6 +618,71 @@ class DW_EH_PE_Relation(Enum):
 
 
 @dataclasses.dataclass(frozen=True)
+class CieAugmentation:
+    """Container for CIE augmentation data allowed in .eh_frame."""
+    lsda_pointer_encoding: DW_EH_PE_ValueType | None = None
+    lsda_pointer_adjust: DW_EH_PE_Relation | None = None
+    personality_routine_pointer: int | None = None
+    personality_routine_adjust: DW_EH_PE_Relation | None = None
+    fde_pointer_encoding: DW_EH_PE_ValueType | None = None
+    fde_pointer_adjust: DW_EH_PE_Relation | None = None
+
+    @staticmethod
+    def read(
+        augmentation: str,
+        data: bytes,
+        offset: int,
+        data_format: DataFormat,
+    ) -> 'CieAugmentation':
+        """Parse augmentation information from a byte stream.
+
+        :param augmentation: the augmentation string that describes content of
+            the buffer.
+        :param data: the byte buffer with raw augmentation data.
+        :param offset: the initial offset of the augmentation data in the
+            original stream. Needed because augmentation data may contain data
+            that is PC-relative, i.e. relative to the position of the data.
+        :param data_format: the data format of the byte buffer."""
+        sr = StreamReader(data_format, BytesIO(data))
+
+        # Parse augmentation data.
+        lsda_encoding: DW_EH_PE_ValueType | None = None
+        lsda_adjust: DW_EH_PE_Relation | None = None
+        pers_pointer: int | None = None
+        pers_adjust: DW_EH_PE_Relation | None = None
+        fde_pointer_encoding: DW_EH_PE_ValueType | None = None
+        fde_pointer_adjust: DW_EH_PE_Relation | None = None
+        for augmentatation_char in augmentation:
+            match augmentatation_char:
+                case 'z':
+                    pass
+                case 'L':
+                    b = sr.uint1()
+                    lsda_encoding = DW_EH_PE_ValueType(b & 0xF)
+                    lsda_adjust = DW_EH_PE_Relation(b >> 4)
+                case 'P':
+                    b = sr.uint1()
+                    pers_encoding = DW_EH_PE_ValueType(b & 0xF)
+                    pers_adjust = DW_EH_PE_Relation(b >> 4)
+                    pers_offset = sr.current_position
+                    pers_pointer = pers_encoding.read_value(sr)
+                    if pers_adjust == DW_EH_PE_Relation.pcrel:
+                        pers_pointer = offset + pers_offset + pers_pointer
+                case 'R':
+                    b = sr.uint1()
+                    fde_pointer_encoding = DW_EH_PE_ValueType(b & 0xF)
+                    fde_pointer_adjust = DW_EH_PE_Relation(b >> 4)
+        return CieAugmentation(
+            lsda_pointer_encoding=lsda_encoding,
+            lsda_pointer_adjust=lsda_adjust,
+            personality_routine_pointer=pers_pointer,
+            personality_routine_adjust=pers_adjust,
+            fde_pointer_encoding=fde_pointer_encoding,
+            fde_pointer_adjust=fde_pointer_adjust,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class CieRecord:
     offset: int
     size: int
@@ -627,14 +693,7 @@ class CieRecord:
     return_address_register: int
     initial_instructions: bytes
     augmentation_data: bytes = b''
-
-    _: dataclasses.KW_ONLY
-    lsda_pointer_encoding: DW_EH_PE_ValueType | None = None
-    lsda_pointer_adjust: DW_EH_PE_Relation | None = None
-    personality_routine_pointer: int | None = None
-    personality_routine_adjust: DW_EH_PE_Relation | None = None
-    fde_pointer_encoding: DW_EH_PE_ValueType | None = None
-    fde_pointer_adjust: DW_EH_PE_Relation | None = None
+    augmentation_info: CieAugmentation = CieAugmentation()
 
     @staticmethod
     def read(sr: StreamReader) -> Optional['CieRecord']:
@@ -666,44 +725,19 @@ class CieRecord:
         daf = sr.sleb128()
         ra = sr.uleb128()
 
-        augmentation_data: bytes = b''
         if 'z' in augmentation_str:
             augmentation_sz = sr.uleb128()
             augmentation_offset = sr.current_position
-            # Read raw data and reset cursor to read again.
-            # Can't parse augmentations from augmentation_data, because
-            # personality_routine_pointer may have value dependant on a PC of
-            # that field (pcrel adjustment).
             augmentation_data = sr.bytes(augmentation_sz)
-            sr.set_abs_position(augmentation_offset)
-
-            # Parse augmentation data.
-            lsda_encoding: DW_EH_PE_ValueType | None = None
-            lsda_adjust: DW_EH_PE_Relation | None = None
-            pers_pointer: int | None = None
-            pers_adjust: DW_EH_PE_Relation | None = None
-            fde_pointer_encoding: DW_EH_PE_ValueType | None = None
-            fde_pointer_adjust: DW_EH_PE_Relation | None = None
-            for augmentatation_char in augmentation_str:
-                match augmentatation_char:
-                    case 'z':
-                        pass
-                    case 'L':
-                        b = sr.uint1()
-                        lsda_encoding = DW_EH_PE_ValueType(b & 0xF)
-                        lsda_adjust = DW_EH_PE_Relation(b >> 4)
-                    case 'P':
-                        b = sr.uint1()
-                        pers_encoding = DW_EH_PE_ValueType(b & 0xF)
-                        pers_adjust = DW_EH_PE_Relation(b >> 4)
-                        pers_offset = sr.current_position
-                        pers_pointer = pers_encoding.read_value(sr)
-                        if pers_adjust == DW_EH_PE_Relation.pcrel:
-                            pers_pointer = pers_offset + pers_pointer
-                    case 'R':
-                        b = sr.uint1()
-                        fde_pointer_encoding = DW_EH_PE_ValueType(b & 0xF)
-                        fde_pointer_adjust = DW_EH_PE_Relation(b >> 4)
+            cie_augmentation = CieAugmentation.read(
+                augmentation_str,
+                augmentation_data,
+                augmentation_offset,
+                sr.data_format,
+            )
+        else:
+            augmentation_data = b''
+            cie_augmentation = CieAugmentation()
 
         # Length of initial instructions field is defined as size of CIE minus
         # already read bytes.
@@ -720,12 +754,7 @@ class CieRecord:
             ra,
             init_instr,
             augmentation_data,
-            lsda_pointer_encoding=lsda_encoding,
-            lsda_pointer_adjust=lsda_adjust,
-            personality_routine_pointer=pers_pointer,
-            personality_routine_adjust=pers_adjust,
-            fde_pointer_encoding=fde_pointer_encoding,
-            fde_pointer_adjust=fde_pointer_adjust,
+            cie_augmentation,
         )
 
 
@@ -784,9 +813,9 @@ class FdeRecord:
             pc_begin_offset = sr.current_position
             # The following condition might (?) actually be false, but this
             # code assumes that `R` augmentation is always present.
-            assert cie.fde_pointer_encoding is not None
-            pc_begin = cie.fde_pointer_encoding.read_value(sr)
-            pc_range = cie.fde_pointer_encoding.read_value(sr)
+            assert cie.augmentation_info.fde_pointer_encoding is not None
+            pc_begin = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
+            pc_range = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
 
             augmentation_sz = 0
             augmentation_data = b''
@@ -818,8 +847,8 @@ class FdeRecord:
         # 2. Loop encountered the zero terminator.
         # Loop terminator here is treated as a special type of CIE (similar to
         # how it is treated in the spec), so either way this function restores
-        # cursor position to the before length field, so then the hihger-order
-        # loop can safely read the CIE, whether it is real CIE or null
+        # cursor position to the before length field, so then the higher-order
+        # loop can safely read the CIE, whether it is a real CIE or null
         # terminator.
         sr.set_abs_position(fde_start)
 
