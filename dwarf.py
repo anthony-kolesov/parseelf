@@ -15,6 +15,7 @@ __all__ = [
     'CieAugmentation',
     'CieRecord',
     'FdeRecord',
+    'read_eh_frame',
     'CfaDefinition',
     'RegisterRule',
     'CallFrameTableRow',
@@ -851,6 +852,19 @@ class FdeRecord:
         # loop can safely read the CIE, whether it is a real CIE or null
         # terminator.
         sr.set_abs_position(fde_start)
+
+
+def read_eh_frame(sr: StreamReader) -> Iterator[CieRecord | FdeRecord]:
+    """Read an .eh_frame section as a sequence of CIE and FDE records.
+
+    :param sr: The stream reader for the .eh_frame section."""
+    # Mapping of offsets to CIE records. Needed because FDE records can
+    # reference any of the previous CIE records.
+    cie_records: dict[int, CieRecord] = {}
+    while cie := CieRecord.read(sr):
+        cie_records[cie.offset] = cie
+        yield cie
+        yield from FdeRecord.read(sr, cie_records)
 
 
 _dwarf_register_names = {

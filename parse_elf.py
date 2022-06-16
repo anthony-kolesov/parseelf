@@ -555,11 +555,7 @@ def print_dwarf_frames(
         return
     print('\nContents of the .eh_frame section:\n')
 
-    stream = BytesIO(elf_obj.section_content(eh_frame.number))
-    target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
-    sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
-    while cie := dwarf.CieRecord.read(sr):
+    def print_cie(cie: dwarf.CieRecord, fmt: dwarf.TargetFormatter) -> None:
         print(f'\n{cie.offset:08x} {cie.size:{elf_obj.elf_class.address_format}} {0:08x} CIE')
         print('  Version:'.ljust(24), cie.version)
         print('  Augmentation:'.ljust(24), f'"{cie.augmentation}"')
@@ -567,47 +563,54 @@ def print_dwarf_frames(
         print('  Data alignment factor:'.ljust(24), cie.data_alignment_factor)
         print('  Return address column:'.ljust(24), cie.return_address_register)
         print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex(bytes_per_sep=1, sep=' '))
-
         init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(cie.initial_instructions))
         while not init_instr_sr.at_eof:
             cfinstr = dwarf.CfaInstruction.read(init_instr_sr)
-            print('  ' + cfinstr.objdump_format(target_format, cie, 0))
+            print('  ' + cfinstr.objdump_format(fmt, cie, 0))
 
-        cie_records[cie.offset] = cie
-        for fde in dwarf.FdeRecord.read(sr, cie_records):
-            # Meaning of pc_begin depends on CIE augmentation.
-            match cie.augmentation_info.fde_pointer_adjust:
-                case dwarf.DW_EH_PE_Relation.pcrel:
-                    pc_begin = eh_frame.header.address + fde.pc_begin_offset + fde.pc_begin
-                case _:
-                    raise NotImplementedError('This type of DW_EH_PE relation is not supported.')
+    def print_fde(fde: dwarf.FdeRecord, fmt: dwarf.TargetFormatter, section_offset: int) -> None:
+        # Meaning of pc_begin depends on CIE augmentation, but for now only one
+        # type of adjust is supported.
+        assert fde.cie.augmentation_info.fde_pointer_adjust == dwarf.DW_EH_PE_Relation.pcrel, \
+            'This type of DW_EH_PE relation is not supported.'
 
-            pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
-            pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
-            print(
-                f'\n{fde.offset:08x}',
-                format(fde.size, elf_obj.elf_class.address_format),
-                format(fde.cie_ptr, '08x'),
-                f'FDE cie={fde.cie.offset:08x}',
-                f'pc={pc_begin_str}..{pc_end_str}'
-            )
-            if fde.augmentation_data:
-                print('  Augmentation data:'.ljust(24), fde.augmentation_data.hex(bytes_per_sep=1, sep=' '))
+        pc_begin = section_offset + fde.pc_begin_offset + fde.pc_begin
+        pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
+        pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
+        print(
+            f'\n{fde.offset:08x}',
+            format(fde.size, elf_obj.elf_class.address_format),
+            format(fde.cie_ptr, '08x'),
+            f'FDE cie={fde.cie.offset:08x}',
+            f'pc={pc_begin_str}..{pc_end_str}'
+        )
+        if fde.augmentation_data:
+            print('  Augmentation data:'.ljust(24), fde.augmentation_data.hex(bytes_per_sep=1, sep=' '))
 
-            fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
-            frame_pc = pc_begin
-            while not fde_instr_sr.at_eof:
-                fde_instr = dwarf.CfaInstruction.read(fde_instr_sr)
-                if fde_instr.instruction in (
-                    dwarf.CfaInstructionCode.DW_CFA_advance_loc,
-                    dwarf.CfaInstructionCode.DW_CFA_advance_loc1,
-                    dwarf.CfaInstructionCode.DW_CFA_advance_loc2,
-                    dwarf.CfaInstructionCode.DW_CFA_advance_loc4,
-                ):
-                    frame_pc += fde_instr.operands[0] * cie.code_alignment_factor
-                elif fde_instr == dwarf.CfaInstructionCode.DW_CFA_set_loc:
-                    frame_pc = fde_instr.operands[0]
-                print('  ' + fde_instr.objdump_format(target_format, cie, frame_pc))
+        fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
+        frame_pc = pc_begin
+        while not fde_instr_sr.at_eof:
+            fde_instr = dwarf.CfaInstruction.read(fde_instr_sr)
+            if fde_instr.instruction in (
+                dwarf.CfaInstructionCode.DW_CFA_advance_loc,
+                dwarf.CfaInstructionCode.DW_CFA_advance_loc1,
+                dwarf.CfaInstructionCode.DW_CFA_advance_loc2,
+                dwarf.CfaInstructionCode.DW_CFA_advance_loc4,
+            ):
+                frame_pc += fde_instr.operands[0] * fde.cie.code_alignment_factor
+            elif fde_instr == dwarf.CfaInstructionCode.DW_CFA_set_loc:
+                frame_pc = fde_instr.operands[0]
+            print('  ' + fde_instr.objdump_format(fmt, fde.cie, frame_pc))
+
+    stream = BytesIO(elf_obj.section_content(eh_frame.number))
+    target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    for entry in dwarf.read_eh_frame(sr):
+        if isinstance(entry, dwarf.CieRecord):
+            print_cie(entry, target_format)
+        else:
+            print_fde(entry, target_format, eh_frame.header.address)
+
     # CieRecord.read doesn't return null record explicitly, but it is present in
     # the stream and objdump prints it.
     print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
@@ -633,46 +636,51 @@ def print_dwarf_frames_interp(
             f'ra={cie.return_address_register}',
         ))
 
+    def print_fde(
+        fde: dwarf.FdeRecord,
+        cftable: dwarf.CallFrameTable,
+        fmt: dwarf.TargetFormatter,
+        section_offset: int,
+    ) -> None:
+        # Meaning of pc_begin depends on CIE augmentation.
+        match fde.cie.augmentation_info.fde_pointer_adjust:
+            case dwarf.DW_EH_PE_Relation.pcrel:
+                pc_begin = section_offset + fde.pc_begin_offset + fde.pc_begin
+            case _:
+                raise NotImplementedError('This type of DW_EH_PE relation is not supported.')
+
+        pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
+        pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
+        print(
+            f'\n{fde.offset:08x}',
+            format(fde.size, elf_obj.elf_class.address_format),
+            format(fde.cie_ptr, '08x'),
+            f'FDE cie={fde.cie.offset:08x}',
+            f'pc={pc_begin_str}..{pc_end_str}'
+        )
+
+        fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
+        fde_cftable = cftable.copy(pc_begin)
+        while not fde_instr_sr.at_eof:
+            fde_cftable.do_instruction(dwarf.CfaInstruction.read(fde_instr_sr))
+        fde_cftable.objdump_print(fmt, sys.stdout)
+
     target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    cie_records: dict[int, dwarf.CieRecord] = {}  # Mapping of offsets to CIE records.
     cie_cftables: dict[int, dwarf.CallFrameTable] = {}
-    while cie := dwarf.CieRecord.read(sr):
-        print()
-        print(format_cie_header(cie))
-
-        init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(cie.initial_instructions))
-        cie_cftable = dwarf.CallFrameTable(cie)
-        while not init_instr_sr.at_eof:
-            cie_cftable.do_instruction(dwarf.CfaInstruction.read(init_instr_sr))
-        cie_cftable.objdump_print(target_format, sys.stdout)
-        cie_cftables[cie.offset] = cie_cftable
-
-        cie_records[cie.offset] = cie
-        for fde in dwarf.FdeRecord.read(sr, cie_records):
-            # Meaning of pc_begin depends on CIE augmentation.
-            match cie.augmentation_info.fde_pointer_adjust:
-                case dwarf.DW_EH_PE_Relation.pcrel:
-                    pc_begin = eh_frame.header.address + fde.pc_begin_offset + fde.pc_begin
-                case _:
-                    raise NotImplementedError('This type of DW_EH_PE relation is not supported.')
-
-            pc_begin_str = format(pc_begin, elf_obj.elf_class.address_format)
-            pc_end_str = format(pc_begin + fde.pc_range, elf_obj.elf_class.address_format)
-            print(
-                f'\n{fde.offset:08x}',
-                format(fde.size, elf_obj.elf_class.address_format),
-                format(fde.cie_ptr, '08x'),
-                f'FDE cie={fde.cie.offset:08x}',
-                f'pc={pc_begin_str}..{pc_end_str}'
-            )
-
-            fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
-            fde_cftable = cie_cftables[fde.cie.offset].copy(pc_begin)
-            while not fde_instr_sr.at_eof:
-                fde_cftable.do_instruction(dwarf.CfaInstruction.read(fde_instr_sr))
-            fde_cftable.objdump_print(target_format, sys.stdout)
+    for entry in dwarf.read_eh_frame(sr):
+        if isinstance(entry, dwarf.CieRecord):
+            print()
+            print(format_cie_header(entry))
+            init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(entry.initial_instructions))
+            cie_cftable = dwarf.CallFrameTable(entry)
+            while not init_instr_sr.at_eof:
+                cie_cftable.do_instruction(dwarf.CfaInstruction.read(init_instr_sr))
+            cie_cftable.objdump_print(target_format, sys.stdout)
+            cie_cftables[entry.offset] = cie_cftable
+        else:
+            print_fde(entry, cie_cftables[entry.cie.offset], target_format, eh_frame.header.address)
 
     # CieRecord.read doesn't return null record explicitly, but it is present in
     # the stream and objdump prints it.
