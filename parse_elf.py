@@ -611,17 +611,10 @@ def print_dwarf_frames(
             print('  Augmentation data:'.ljust(24), fde.augmentation_data.hex(bytes_per_sep=1, sep=' '))
 
         fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
-        frame_pc = fde.abs_pc_begin(section_address)
+        fde_cftable = dwarf.CallFrameTable(fde.cie).copy(fde.abs_pc_begin(section_address))
         for fde_instr in dwarf.CfaInstruction.read(fde_instr_sr):
-            if fde_instr.instruction in (
-                dwarf.CfaInstructionCode.DW_CFA_advance_loc,
-                dwarf.CfaInstructionCode.DW_CFA_advance_loc1,
-                dwarf.CfaInstructionCode.DW_CFA_advance_loc2,
-                dwarf.CfaInstructionCode.DW_CFA_advance_loc4,
-            ):
-                frame_pc += fde_instr.operands[0] * fde.cie.code_alignment_factor
-            elif fde_instr.instruction == dwarf.CfaInstructionCode.DW_CFA_set_loc:
-                frame_pc = fde_instr.operands[0]
+            fde_cftable.do_instruction(fde_instr)
+            frame_pc = fde_cftable.current_loc()
             print('  ' + fde_instr.objdump_format(fmt, fde.cie, frame_pc))
 
     stream = BytesIO(elf_obj.section_content(eh_frame.number))

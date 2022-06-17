@@ -1133,6 +1133,17 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             result.update(row.register_rules.keys())
         return tuple(sorted(result))
 
+    def current_loc(self) -> int:
+        """Return current location of the last row or 0 if there are no rows.
+
+        This is a function instead of property, because it's value changes over
+        time (note that this design rule isn't applied very consistently in this
+        code)."""
+        if len(self.__rows):
+            return self.__rows[-1].loc
+        else:
+            return 0
+
     def objdump_print(self, fmt: TargetFormatter, stream: TextIO) -> None:
         """Print this table to the provided stream."""
         # Don't print anything if there are no rows.
@@ -1169,9 +1180,12 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
         ruleset of the new table, and the new table's frames offset will be set
         to the value specified in arguments."""
         r = CallFrameTable(self.__cie)
-        r.__initial = CallFrameTableRow(
-            loc=offset,
-            cfa=self.__rows[-1].cfa,
-            register_rules=dict[int, RegisterRule](self.__rows[-1].register_rules),
-        )
+        if len(self.__rows):
+            r.__initial = CallFrameTableRow(
+                loc=offset,
+                cfa=self.__rows[-1].cfa,
+                register_rules=dict[int, RegisterRule](self.__rows[-1].register_rules),
+            )
+        else:
+            r.__initial = CallFrameTableRow(loc=offset)
         return r
