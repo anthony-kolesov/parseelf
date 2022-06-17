@@ -1525,3 +1525,7 @@ class LineNumberStateMachine:
             self.epilogue_begins,
             self.isa,
         ))
+
+    @property
+    def rows(self) -> Sequence[LineNumberStateRow]:
+        return self.__rows

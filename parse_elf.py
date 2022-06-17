@@ -83,6 +83,7 @@ def create_parser() -> ArgumentParser:
         help='Display debug information in object file',
         choices=(
             'rawline',
+            'decodedline',
             'frames-interp',
             'frames',
         ),
@@ -558,7 +559,6 @@ def print_dwarf_rawline(
     print('\nRaw dump of debug contents of section .debug_line:\n')
 
     stream = BytesIO(elf_obj.section_content(debug_line.number))
-    # target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     for line_prog in dwarf.LineNumberProgram.read(sr):
         w = 30
@@ -602,6 +602,43 @@ def print_dwarf_rawline(
             print(f'  [{lns.offset:#010x}]  {description}')
         print()
 
+        print()
+
+
+def print_dwarf_decodedline(
+    elf_obj: elf.Elf,
+) -> None:
+    debug_line = next((s for s in elf_obj.sections if s.name == '.debug_line'), None)
+    if debug_line is None:
+        print()
+        return
+    print('\nContents of the .debug_line section:\n')
+
+    stream = BytesIO(elf_obj.section_content(debug_line.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    colw = (36, 11, 19, 7, 7)
+    for line_prog in dwarf.LineNumberProgram.read(sr):
+        stateMachine = dwarf.LineNumberStateMachine(line_prog)
+        for lns in line_prog.statements:
+            stateMachine.do_statement(lns)
+
+        file = stateMachine.file_names[stateMachine.rows[0].file-1]
+        dirname = line_prog.include_directories[file.directory_index - 1] if file.directory_index > 0 else './'
+        filepath = file.name
+        print(f'CU: {dirname}{filepath}:')
+        print(f'{"File name":{colw[0]}} {"Line number":>{colw[1]}} {"Starting address":>{colw[2]}} '
+              f'{"View":>{colw[3]}} {"Stmt":>{colw[4]}}')
+
+        for row in stateMachine.rows:
+            file = stateMachine.file_names[row.file-1]
+            dirname = line_prog.include_directories[file.directory_index - 1] if file.directory_index > 0 else './'
+            filepath = file.name
+            stmt = 'x' if row.is_stmt else ''
+            print(
+                f'{filepath:{colw[0]}} {row.line:>{colw[1]}} {row.address:>#{colw[2]}x} '
+                f'{"":{colw[3]}} {stmt:>{colw[4]}}'
+            )
+        print()
         print()
 
 
@@ -767,6 +804,8 @@ if __name__ == "__main__":
     if args.dwarf:
         if 'rawline' in args.dwarf:
             print_dwarf_rawline(elf_obj)
+        if 'decodedline' in args.dwarf:
+            print_dwarf_decodedline(elf_obj)
         if 'frames-interp' in args.dwarf:
             print_dwarf_frames_interp(elf_obj)
         if 'frames' in args.dwarf:
