@@ -553,6 +553,7 @@ def print_dwarf_rawline(
 ) -> None:
     debug_line = next((s for s in elf_obj.sections if s.name == '.debug_line'), None)
     if debug_line is None:
+        print()
         return
     print('\nRaw dump of debug contents of section .debug_line:\n')
 
@@ -595,8 +596,10 @@ def print_dwarf_rawline(
         print()
 
         print(' Line Number Statements:')
+        stateMachine = dwarf.LineNumberStateMachine(line_prog)
         for lns in line_prog.statements:
-            print(f'  [{lns.offset:#010x}]  {line_prog.describe(lns)}')
+            description = stateMachine.do_statement(lns)
+            print(f'  [{lns.offset:#010x}]  {description}')
         print()
 
         print()

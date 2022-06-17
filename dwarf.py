@@ -20,10 +20,12 @@ __all__ = [
     'RegisterRule',
     'CallFrameTableRow',
     'CallFrameTable',
+    'LineNumberConst',
     'FileNameEntry',
-    'LineNumStatementCode',
-    'LineNumStatement',
+    'LineNumberStatement',
     'LineNumberProgram',
+    'LineNumberStateRow',
+    'LineNumberStateMachine',
 ]
 
 import builtins
@@ -32,8 +34,8 @@ import collections.abc
 import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
-from typing import BinaryIO, Iterable, Iterator, Mapping, MutableMapping, \
-    NamedTuple, Optional, Sequence, TextIO
+from typing import BinaryIO, final, Iterable, Iterator, Mapping, \
+    MutableMapping, NamedTuple, Optional, Sequence, TextIO
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
 
@@ -1198,6 +1200,26 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
 #
 # .debug_line support
 #
+class LineNumberConst:
+    """A container for line number constants."""
+    DW_LNS_copy = 1
+    DW_LNS_advance_pc = 2
+    DW_LNS_advance_line = 3
+    DW_LNS_set_file = 4
+    DW_LNS_set_column = 5
+    DW_LNS_negate_stm = 6
+    DW_LNS_set_basic_block = 7
+    DW_LNS_const_add_pc = 8
+    DW_LNS_fixed_advance_pc = 9
+    DW_LNS_set_prologue_end = 10
+    DW_LNS_set_epilogue_begin = 11
+    DW_LNS_set_isa = 12
+
+    DW_LNE_end_sequence = 1
+    DW_LNE_set_address = 2
+    DW_LNE_define_file = 3
+
+
 @dataclasses.dataclass(frozen=True)
 class FileNameEntry:
     name: str
@@ -1217,23 +1239,8 @@ class FileNameEntry:
             yield FileNameEntry(name, dir_index, mtime, file_sz)
 
 
-class LineNumStatementCode(Enum):
-    DW_LNS_copy = 1
-    DW_LNS_advance_pc = 2
-    DW_LNS_advance_line = 3
-    DW_LNS_set_file = 4
-    DW_LNS_set_column = 5
-    DW_LNS_negate_stm = 6
-    DW_LNS_set_basic_block = 7
-    DW_LNS_const_add_pc = 8
-    DW_LNS_fixed_advance_pc = 9
-    DW_LNS_set_prologue_end = 10
-    DW_LNS_set_epilogue_begin = 11
-    DW_LNS_set_isa = 12
-
-
 @dataclasses.dataclass(frozen=True)
-class LineNumStatement:
+class LineNumberStatement:
     offset: int
     opcode: int
     operands: Sequence[int]
@@ -1257,30 +1264,7 @@ class LineNumberProgram:
     include_directories_offset: int
     files: Sequence[FileNameEntry]
     file_table_offset: int
-    statements: Sequence[LineNumStatement]
-    """Sequence of opcode offsets."""
-
-    def describe(self, lns: LineNumStatement) -> str:
-        if lns.opcode == 0:
-            return f'Extended opcode {lns.operands[0]}'
-
-        if lns.opcode >= self.opcode_base:
-            spopcode = lns.opcode-self.opcode_base
-            pc_delta = spopcode // self.line_range * self.minimum_instruction_length
-            pc_new = 0 + pc_delta
-            line_delta = self.line_base + spopcode % self.line_range
-            line_new = 0 + line_delta
-            return (f'Special opcode {spopcode}: advance Address by {pc_delta} '
-                    f'to {pc_new:#x} and Line by {line_delta} to {line_new}')
-
-        match lns.opcode:
-            case (LineNumStatementCode.DW_LNS_advance_pc.value |
-                  LineNumStatementCode.DW_LNS_fixed_advance_pc.value):
-                return f'Advance PC by {lns.operands[0]} to'
-            case LineNumStatementCode.DW_LNS_set_column.value:
-                return f'Set column to {lns.operands[0]}'
-
-        return f'{lns!r}'
+    statements: Sequence[LineNumberStatement]
 
     @staticmethod
     def read(sr: StreamReader) -> Iterator['LineNumberProgram']:
@@ -1314,7 +1298,7 @@ class LineNumberProgram:
             file_table_offset = sr.current_position
             file_table = tuple(FileNameEntry.read(sr))
 
-            statements: list[LineNumStatement] = []
+            statements: list[LineNumberStatement] = []
             while sr.current_position < offset + 4 + length:
                 stmt_offset = sr.current_position
                 opcode = sr.uint1()
@@ -1322,15 +1306,27 @@ class LineNumberProgram:
                 if opcode == 0:
                     # Extended opcode.
                     instr_sz = sr.uleb128()
-                    operands.append(sr.bytes(instr_sz))
+                    # Handle known xopcodes.
+                    xopcode = sr.uint1()
+                    operands.append(xopcode)
+                    match xopcode:
+                        case LineNumberConst.DW_LNE_end_sequence:
+                            pass  # No arguments.
+                        case LineNumberConst.DW_LNE_set_address:
+                            operands.append(sr.pointer())
+                        case LineNumberConst.DW_LNE_define_file:
+                            operands.append(next(FileNameEntry.read(sr)))
+                        case _:
+                            # Read remaining bytes, minus xopcode
+                            operands.append(sr.bytes(instr_sz - 1))
                 elif opcode < opcode_base:
                     # Standard opcodes.
-                    if opcode == LineNumStatementCode.DW_LNS_fixed_advance_pc:
+                    if opcode == LineNumberConst.DW_LNS_fixed_advance_pc:
                         operands.append(sr.uint2())  # Special case opcode.
                     else:
                         for x in range(opcode_operands[opcode-1]):
                             operands.append(sr.uleb128())
-                statements.append(LineNumStatement(
+                statements.append(LineNumberStatement(
                     stmt_offset,
                     opcode,
                     operands,
@@ -1355,3 +1351,177 @@ class LineNumberProgram:
                 file_table_offset,
                 statements,
             )
+
+
+@dataclasses.dataclass(frozen=True)
+class LineNumberStateRow:
+    """Represents a single row in line number table."""
+    address: int
+    file: int
+    line: int
+    column: int
+    is_stmt: bool
+    basic_block: bool
+    end_sequence: bool
+    prologue_end: bool
+    epilogue_begins: bool
+    isa: int
+
+
+class LineNumberStateMachine:
+    address: int
+    file: int
+    line: int
+    column: int
+    is_stmt: bool
+    basic_block: bool
+    end_sequence: bool
+    prologue_end: bool
+    epilogue_begins: bool
+    isa: int
+    file_names: Sequence[FileNameEntry]
+
+    def __init__(self, header: LineNumberProgram) -> None:
+        self.__header = header
+        self.__rows: list[LineNumberStateRow] = list()
+        self.file_names = list(header.files)
+        self.__reset()
+
+    @final
+    def __reset(self) -> None:
+        # This function is called from the constructor, therefore shall not be
+        # overriden.
+        self.address = 0
+        self.file = 1
+        self.line = 1
+        self.column = 0
+        self.is_stmt = bool(self.__header.default_is_stmt)
+        self.basic_block = False
+        self.end_sequence = False
+        self.prologue_end = False
+        self.epilogue_begins = False
+        self.isa = 0
+
+    def __special_opcode_address_delta(self, adjusted_opcode: int) -> int:
+        """Evaluate address delta for the special opcode.
+
+        :param adjusted_opcode: An already adjusted special opcode."""
+        return adjusted_opcode // self.__header.line_range * self.__header.minimum_instruction_length
+
+    def __special_opcode_line_delta(self, adjusted_opcode: int) -> int:
+        """Evaluate address delta for the special opcode.
+
+        :param adjusted_opcode: An already adjusted special opcode."""
+        return self.__header.line_base + adjusted_opcode % self.__header.line_range
+
+    def do_statement(self, lns: LineNumberStatement) -> str:
+        """Execute a statement and return textual description of the instruction.
+
+        Returned description is needed to generate rawline output."""
+        # Extended opcode?
+        if lns.opcode == 0:
+            match lns.operands[0]:
+                case LineNumberConst.DW_LNE_end_sequence:
+                    self.end_sequence = True
+                    self.__append_row()
+                    self.__reset()
+                    return f'Extended opcode {lns.operands[0]}: End of Sequence'
+                case LineNumberConst.DW_LNE_set_address:
+                    self.address = lns.operands[1]
+                    return f'Extended opcode {lns.operands[0]}: set Address to {lns.operands[1]:#x}'
+                case LineNumberConst.DW_LNE_define_file:
+                    self.file_names.append(lns.operands[1])
+                    return (
+                        f'Extended opcode {lns.operands[0]}: define new File Table entry\n'
+                        '  Entry\tDir\tTime\tSize\tName)\n'
+                        '\t'.join((
+                            f'  {len(self.file_names) - 1}',
+                            str(lns.operands[1].directory_index),
+                            str(lns.operands[1].modification_time),
+                            str(lns.operands[1].file_size),
+                            lns.operands[1].name,
+                        ))
+                    )
+                case _:
+                    raise NotImplementedError(f'Extended opcode {lns.operands[0]}')
+
+        # Special opcode?
+        if lns.opcode >= self.__header.opcode_base:
+            special_opcode = lns.opcode - self.__header.opcode_base
+            addr_delta = self.__special_opcode_address_delta(special_opcode)
+            self.address += addr_delta
+            line_delta = self.__special_opcode_line_delta(special_opcode)
+            self.line += line_delta
+            self.__append_row()
+            self.basic_block = False
+            self.prologue_end = False
+            self.epilogue_begins = False
+            return (
+                f'Special opcode {special_opcode}: '
+                f'advance Address by {addr_delta} to {self.address:#x} '
+                f'and Line by {line_delta} to {self.line}'
+            )
+
+        # Standard opcode?
+        match lns.opcode:
+            case LineNumberConst.DW_LNS_copy:
+                self.__append_row()
+                self.basic_block = self.prologue_end = self.epilogue_begins = False
+                return 'Copy'
+            case LineNumberConst.DW_LNS_advance_pc:
+                addr_delta = lns.operands[0] * self.__header.minimum_instruction_length
+                self.address += addr_delta
+                return f'Advance PC by {addr_delta} to {self.address:#x}'
+            case LineNumberConst.DW_LNS_advance_line:
+                self.line += lns.operands[0]
+                return f'Advance Line by {lns.operands[0]} to {self.line}'
+            case LineNumberConst.DW_LNS_set_file:
+                self.file = lns.operands[0]
+                return f'Set File Name to entry {lns.operands[0]} in the File Name Table'
+            case LineNumberConst.DW_LNS_set_column:
+                self.column = lns.operands[0]
+                return f'Set column to {lns.operands[0]}'
+            case LineNumberConst.DW_LNS_negate_stm:
+                self.is_stmt = not self.is_stmt
+                return f'Set is_stmt to {self.is_stmt:d}'
+            case LineNumberConst.DW_LNS_set_basic_block:
+                self.basic_block = True
+                return 'Set basic block'
+            case LineNumberConst.DW_LNS_const_add_pc:
+                # It is not abundantly clear from the spec if opcode 255 is an
+                # adjusted opcode value or not. I assume it is not adjusted,
+                # hence it is adjusted in th the __special_opcode_address_delta.
+                addr_delta = self.__special_opcode_address_delta(255 - self.__header.opcode_base) \
+                    * self.__header.minimum_instruction_length
+                self.address += addr_delta
+                return f'Advance PC by constant {addr_delta} to {self.address:#x}'
+            case LineNumberConst.DW_LNS_fixed_advance_pc:
+                self.address += lns.operands[0]
+                return f'Advance PC by fixed size amount {lns.operands[0]} to {self.address:#x}'
+            case LineNumberConst.DW_LNS_set_prologue_end:
+                self.prologue_end = True
+                return 'Set prologue_end to true'
+            case LineNumberConst.DW_LNS_set_epilogue_begin:
+                self.epilogue_begins = True
+                return 'Set epilogue_begin to true'
+            case LineNumberConst.DW_LNS_set_isa:
+                self.isa = lns.operands[0]
+                return f'Set ISA to {self.isa}'
+            case _:
+                operands = self.__header.standard_opcode_operands[lns.opcode]
+                return f'Unknown opcode {lns.opcode} with operands:' + ', '.join(format(op, '#x') for op in operands)
+
+    def __append_row(self) -> None:
+        """Append a new row to the table based on current state of registers."""
+        self.__rows.append(LineNumberStateRow(
+            self.address,
+            self.file,
+            self.line,
+            self.column,
+            self.is_stmt,
+            self.basic_block,
+            self.end_sequence,
+            self.prologue_end,
+            self.epilogue_begins,
+            self.isa,
+        ))
