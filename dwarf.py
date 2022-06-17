@@ -191,6 +191,10 @@ class TargetFormatter:
             return 'r' + str(regnum)
 
     @property
+    def data_format(self) -> DataFormat:
+        return self.__df
+
+    @property
     def pointer_format(self) -> str:
         """Return a format string for pointers in this architecture."""
         return self.__df.bits.address_format

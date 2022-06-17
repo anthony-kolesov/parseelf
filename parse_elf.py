@@ -552,6 +552,37 @@ def _format_address_range(start: int, end: int, bits: elf.ElfClass) -> str:
     return f'{start:{bits.address_format}}..{end:{bits.address_format}}'
 
 
+def _dwarf_frame_cie_common(
+    cie: dwarf.CieRecord,
+    bits: elf.ElfClass,
+) -> str:
+    """Format CIE line common to frames and frames-interp."""
+    return ' '.join((
+        format(cie.offset, '08x'),
+        format(cie.size, bits.address_format),
+        format(0, '08x'),
+        'CIE',
+    ))
+
+
+def _dwarf_frame_fde(
+    fde: dwarf.FdeRecord,
+    bits: elf.ElfClass,
+    section_address: int,
+) -> str:
+    """Format an FDE entry to a single line for printing.
+
+    This line format is shared by frames and frames-interp formats."""
+    pc_begin = fde.abs_pc_begin(section_address)
+    return ' '.join((
+        format(fde.offset, '08x'),
+        format(fde.size, bits.address_format),
+        format(fde.cie_ptr, '08x'),
+        f'FDE cie={fde.cie.offset:08x}',
+        f'pc={_format_address_range(pc_begin, pc_begin + fde.pc_range, bits)}',
+    ))
+
+
 def print_dwarf_frames(
     elf_obj: elf.Elf,
 ) -> None:
@@ -561,7 +592,8 @@ def print_dwarf_frames(
     print('\nContents of the .eh_frame section:\n')
 
     def print_cie(cie: dwarf.CieRecord, fmt: dwarf.TargetFormatter) -> None:
-        print(f'\n{cie.offset:08x} {cie.size:{elf_obj.elf_class.address_format}} {0:08x} CIE')
+        print()
+        print(_dwarf_frame_cie_common(cie, fmt.data_format.bits))
         print('  Version:'.ljust(24), cie.version)
         print('  Augmentation:'.ljust(24), f'"{cie.augmentation}"')
         print('  Code alignment factor:'.ljust(24), cie.code_alignment_factor)
@@ -573,19 +605,13 @@ def print_dwarf_frames(
             print('  ' + cfinstr.objdump_format(fmt, cie, 0))
 
     def print_fde(fde: dwarf.FdeRecord, fmt: dwarf.TargetFormatter, section_address: int) -> None:
-        pc_begin = fde.abs_pc_begin(section_address)
-        print(
-            f'\n{fde.offset:08x}',
-            format(fde.size, elf_obj.elf_class.address_format),
-            format(fde.cie_ptr, '08x'),
-            f'FDE cie={fde.cie.offset:08x}',
-            f'pc={_format_address_range(pc_begin, pc_begin + fde.pc_range, elf_obj.elf_class)}'
-        )
+        print()
+        print(_dwarf_frame_fde(fde, fmt.data_format.bits, section_address))
         if fde.augmentation_data:
             print('  Augmentation data:'.ljust(24), fde.augmentation_data.hex(bytes_per_sep=1, sep=' '))
 
         fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
-        frame_pc = pc_begin
+        frame_pc = fde.abs_pc_begin(section_address)
         for fde_instr in dwarf.CfaInstruction.read(fde_instr_sr):
             if fde_instr.instruction in (
                 dwarf.CfaInstructionCode.DW_CFA_advance_loc,
@@ -620,35 +646,17 @@ def print_dwarf_frames_interp(
         return
     print('\nContents of the .eh_frame section:\n')
 
-    def format_cie_header(cie: dwarf.CieRecord) -> str:
-        return ' '.join((
-            format(cie.offset, '08x'),
-            format(cie.size, elf_obj.elf_class.address_format),
-            format(0, '08x'),
-            'CIE',
-            f'"{cie.augmentation}"',
-            f'cf={cie.code_alignment_factor}',
-            f'df={cie.data_alignment_factor}',
-            f'ra={cie.return_address_register}',
-        ))
-
     def print_fde(
         fde: dwarf.FdeRecord,
         cftable: dwarf.CallFrameTable,
         fmt: dwarf.TargetFormatter,
         section_address: int,
     ) -> None:
-        pc_begin = fde.abs_pc_begin(section_address)
-        print(
-            f'\n{fde.offset:08x}',
-            format(fde.size, elf_obj.elf_class.address_format),
-            format(fde.cie_ptr, '08x'),
-            f'FDE cie={fde.cie.offset:08x}',
-            f'pc={_format_address_range(pc_begin, pc_begin + fde.pc_range, elf_obj.elf_class)}'
-        )
+        print()
+        print(_dwarf_frame_fde(fde, fmt.data_format.bits, section_address))
 
         fde_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(fde.instructions))
-        fde_cftable = cftable.copy(pc_begin)
+        fde_cftable = cftable.copy(fde.abs_pc_begin(section_address))
         fde_cftable.do_instruction(*dwarf.CfaInstruction.read(fde_instr_sr))
         fde_cftable.objdump_print(fmt, sys.stdout)
 
@@ -659,7 +667,13 @@ def print_dwarf_frames_interp(
     for entry in dwarf.read_eh_frame(sr):
         if isinstance(entry, dwarf.CieRecord):
             print()
-            print(format_cie_header(entry))
+            print(' '.join((
+                _dwarf_frame_cie_common(entry, target_format.data_format.bits),
+                f'"{entry.augmentation}"',
+                f'cf={entry.code_alignment_factor}',
+                f'df={entry.data_alignment_factor}',
+                f'ra={entry.return_address_register}',
+            )))
             init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(entry.initial_instructions))
             cie_cftable = dwarf.CallFrameTable(entry)
             cie_cftable.do_instruction(*dwarf.CfaInstruction.read(init_instr_sr))
