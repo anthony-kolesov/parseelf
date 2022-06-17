@@ -84,6 +84,7 @@ def create_parser() -> ArgumentParser:
         choices=(
             'rawline',
             'decodedline',
+            'info',
             'frames-interp',
             'frames',
         ),
@@ -642,6 +643,25 @@ def print_dwarf_decodedline(
         print()
 
 
+def print_dwarf_info(
+    elf_obj: elf.Elf,
+) -> None:
+    debug_info = next((s for s in elf_obj.sections if s.name == '.debug_info'), None)
+    if debug_info is None:
+        print()
+        return
+    print('\nContents of the .debug_info section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_info.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    for cu in dwarf.CompilationUnit.read(sr):
+        print(f'  Compilation Unit @ offset {cu.offset:#x}:')
+        print(f'   Length:        {cu.length:#x} ({"32" if cu.is_dwarf32 else "64"}-bit)')
+        print(f'   Version:       {cu.version}')
+        print(f'   Abbrev Offset: {cu.debug_abbrev_offset:#x}')
+        print(f'   Pointer Size:  {cu.address_size}')
+        print()
+
+
 def _format_address_range(start: int, end: int, bits: elf.ElfClass) -> str:
     """Format an address range as {start}..{end}"""
     return f'{start:{bits.address_format}}..{end:{bits.address_format}}'
@@ -806,6 +826,8 @@ if __name__ == "__main__":
             print_dwarf_rawline(elf_obj)
         if 'decodedline' in args.dwarf:
             print_dwarf_decodedline(elf_obj)
+        if 'info' in args.dwarf:
+            print_dwarf_info(elf_obj)
         if 'frames-interp' in args.dwarf:
             print_dwarf_frames_interp(elf_obj)
         if 'frames' in args.dwarf:

@@ -1279,6 +1279,7 @@ class LineNumberProgram:
                 is_dwarf32 = True
                 assert length < 0xfffffff0  # Reserved values.
 
+            ln_offset = sr.current_position
             version = sr.uint2()
             assert version == 3, "Only DWARF v3 .debug_line is supported."
 
@@ -1333,7 +1334,7 @@ class LineNumberProgram:
                 ))
 
             # Ensure that cursor is at the next entry no matter what.
-            sr.set_abs_position(offset + 4 + length)
+            sr.set_abs_position(ln_offset + length)
             yield LineNumberProgram(
                 offset,
                 length,
@@ -1529,3 +1530,46 @@ class LineNumberStateMachine:
     @property
     def rows(self) -> Sequence[LineNumberStateRow]:
         return self.__rows
+
+
+#
+# .debug_info
+#
+@dataclasses.dataclass(frozen=True)
+class CompilationUnit:
+    offset: int
+    length: int
+    is_dwarf32: bool
+    version: int
+    debug_abbrev_offset: int
+    address_size: int
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterator['CompilationUnit']:
+        while not sr.at_eof:
+            offset = sr.current_position
+            length = sr.uint4()
+            if length == 0xffffffff:
+                # Read extended length.
+                length = sr.uint8()
+                is_dwarf32 = False
+            else:
+                is_dwarf32 = True
+                assert length < 0xfffffff0  # Reserved values.
+
+            cu_offset = sr.current_position
+            version = sr.uint2()
+            assert version == 4, "Only DWARF v4 .debug_info is supported."
+
+            debug_abbrev_offset = sr.uint4() if is_dwarf32 else sr.uint8()
+            address_size = sr.uint1()
+
+            sr.set_abs_position(cu_offset + length)
+            yield CompilationUnit(
+                offset,
+                length,
+                is_dwarf32,
+                version,
+                debug_abbrev_offset,
+                address_size,
+            )
