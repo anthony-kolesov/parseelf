@@ -20,6 +20,10 @@ __all__ = [
     'RegisterRule',
     'CallFrameTableRow',
     'CallFrameTable',
+    'FileNameEntry',
+    'LineNumStatementCode',
+    'LineNumStatement',
+    'LineNumberProgram',
 ]
 
 import builtins
@@ -1189,3 +1193,165 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
         else:
             r.__initial = CallFrameTableRow(loc=offset)
         return r
+
+
+#
+# .debug_line support
+#
+@dataclasses.dataclass(frozen=True)
+class FileNameEntry:
+    name: str
+    directory_index: int
+    modification_time: int
+    file_size: int
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterator['FileNameEntry']:
+        while not sr.at_eof:
+            name = sr.cstring()
+            if len(name) == 0:
+                return  # Null entry
+            dir_index = sr.uleb128()
+            mtime = sr.uleb128()
+            file_sz = sr.uleb128()
+            yield FileNameEntry(name, dir_index, mtime, file_sz)
+
+
+class LineNumStatementCode(Enum):
+    DW_LNS_copy = 1
+    DW_LNS_advance_pc = 2
+    DW_LNS_advance_line = 3
+    DW_LNS_set_file = 4
+    DW_LNS_set_column = 5
+    DW_LNS_negate_stm = 6
+    DW_LNS_set_basic_block = 7
+    DW_LNS_const_add_pc = 8
+    DW_LNS_fixed_advance_pc = 9
+    DW_LNS_set_prologue_end = 10
+    DW_LNS_set_epilogue_begin = 11
+    DW_LNS_set_isa = 12
+
+
+@dataclasses.dataclass(frozen=True)
+class LineNumStatement:
+    offset: int
+    opcode: int
+    operands: Sequence[int]
+
+
+@dataclasses.dataclass(frozen=True)
+class LineNumberProgram:
+    """Representation of line number programs in .debug_line section."""
+    offset: int
+    length: int
+    version: int
+    header_length: int
+    minimum_instruction_length: int
+    default_is_stmt: int
+    line_base: int
+    line_range: int
+    opcode_base: int
+    standard_opcode_operands: Sequence[int]
+    """Specifies the number of LEB128 operands for each of the standard opcodes."""
+    include_directories: Sequence[str]
+    include_directories_offset: int
+    files: Sequence[FileNameEntry]
+    file_table_offset: int
+    statements: Sequence[LineNumStatement]
+    """Sequence of opcode offsets."""
+
+    def describe(self, lns: LineNumStatement) -> str:
+        if lns.opcode == 0:
+            return f'Extended opcode {lns.operands[0]}'
+
+        if lns.opcode >= self.opcode_base:
+            spopcode = lns.opcode-self.opcode_base
+            pc_delta = spopcode // self.line_range * self.minimum_instruction_length
+            pc_new = 0 + pc_delta
+            line_delta = self.line_base + spopcode % self.line_range
+            line_new = 0 + line_delta
+            return (f'Special opcode {spopcode}: advance Address by {pc_delta} '
+                    f'to {pc_new:#x} and Line by {line_delta} to {line_new}')
+
+        match lns.opcode:
+            case (LineNumStatementCode.DW_LNS_advance_pc.value |
+                  LineNumStatementCode.DW_LNS_fixed_advance_pc.value):
+                return f'Advance PC by {lns.operands[0]} to'
+            case LineNumStatementCode.DW_LNS_set_column.value:
+                return f'Set column to {lns.operands[0]}'
+
+        return f'{lns!r}'
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterator['LineNumberProgram']:
+        while not sr.at_eof:
+            offset = sr.current_position
+            length = sr.uint4()
+            if length == 0xffffffff:
+                # Read extended length.
+                length = sr.uint8()
+                is_dwarf32 = False
+            else:
+                is_dwarf32 = True
+                assert length < 0xfffffff0  # Reserved values.
+
+            version = sr.uint2()
+            assert version == 3, "Only DWARF v3 .debug_line is supported."
+
+            header_length = sr.uint4() if is_dwarf32 else sr.uint8()
+            minimum_instruction_length = sr.uint1()
+            default_is_stmt = sr.uint1()
+            line_base = sr.sint1()
+            line_range = sr.uint1()
+            opcode_base = sr.uint1()
+            opcode_operands = tuple(sr.uint1() for v in range(1, opcode_base))
+
+            include_dirs_offset = sr.current_position
+            include_dirs = []
+            while dir := sr.cstring():
+                include_dirs.append(dir)
+
+            file_table_offset = sr.current_position
+            file_table = tuple(FileNameEntry.read(sr))
+
+            statements: list[LineNumStatement] = []
+            while sr.current_position < offset + 4 + length:
+                stmt_offset = sr.current_position
+                opcode = sr.uint1()
+                operands: list[int] = []
+                if opcode == 0:
+                    # Extended opcode.
+                    instr_sz = sr.uleb128()
+                    operands.append(sr.bytes(instr_sz))
+                elif opcode < opcode_base:
+                    # Standard opcodes.
+                    if opcode == LineNumStatementCode.DW_LNS_fixed_advance_pc:
+                        operands.append(sr.uint2())  # Special case opcode.
+                    else:
+                        for x in range(opcode_operands[opcode-1]):
+                            operands.append(sr.uleb128())
+                statements.append(LineNumStatement(
+                    stmt_offset,
+                    opcode,
+                    operands,
+                ))
+
+            # Ensure that cursor is at the next entry no matter what.
+            sr.set_abs_position(offset + 4 + length)
+            yield LineNumberProgram(
+                offset,
+                length,
+                version,
+                header_length,
+                minimum_instruction_length,
+                default_is_stmt,
+                line_base,
+                line_range,
+                opcode_base,
+                opcode_operands,
+                include_dirs,
+                include_dirs_offset,
+                file_table,
+                file_table_offset,
+                statements,
+            )

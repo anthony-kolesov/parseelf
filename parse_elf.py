@@ -82,6 +82,7 @@ def create_parser() -> ArgumentParser:
         '--dwarf', '--debug-dump', '-w',
         help='Display debug information in object file',
         choices=(
+            'rawline',
             'frames-interp',
             'frames',
         ),
@@ -547,6 +548,60 @@ def string_dump(
         print()
 
 
+def print_dwarf_rawline(
+    elf_obj: elf.Elf,
+) -> None:
+    debug_line = next((s for s in elf_obj.sections if s.name == '.debug_line'), None)
+    if debug_line is None:
+        return
+    print('\nRaw dump of debug contents of section .debug_line:\n')
+
+    stream = BytesIO(elf_obj.section_content(debug_line.number))
+    # target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    for line_prog in dwarf.LineNumberProgram.read(sr):
+        w = 30
+        print('  Offset:'.ljust(w), format(line_prog.offset, '#x'))
+        print('  Length:'.ljust(w), line_prog.length)
+        print('  DWARF Version:'.ljust(w), line_prog.version)
+        print('  Prologue Length:'.ljust(w), line_prog.header_length)
+        print('  Minimum Instruction Length:'.ljust(w), line_prog.minimum_instruction_length)
+        print("  Initial value of 'is_stmt':".ljust(w), line_prog.default_is_stmt)
+        print('  Line Base:'.ljust(w), line_prog.line_base)
+        print('  Line Range:'.ljust(w), line_prog.line_range)
+        print('  Opcode Base:'.ljust(w), line_prog.opcode_base)
+        print()
+
+        print(' Opcodes:')
+        for i, args_num in enumerate(line_prog.standard_opcode_operands, start=1):
+            print(f'  Opcode {i} has {args_num} {"args" if args_num != 1 else "arg"}')
+        print()
+
+        print(f' The Directory Table (offset {line_prog.include_directories_offset:#x}):')
+        for i, dir in enumerate(line_prog.include_directories, start=1):
+            print(f'  {i}\t{dir}')
+        print()
+
+        print(f' The File Name Table (offset {line_prog.file_table_offset:#x}):')
+        print('  Entry\tDir\tTime\tSize\tName')
+        for i, file in enumerate(line_prog.files, start=1):
+            print('\t'.join((
+                f'  {i}',
+                str(file.directory_index),
+                str(file.modification_time),
+                str(file.file_size),
+                file.name,
+            )))
+        print()
+
+        print(' Line Number Statements:')
+        for lns in line_prog.statements:
+            print(f'  [{lns.offset:#010x}]  {line_prog.describe(lns)}')
+        print()
+
+        print()
+
+
 def _format_address_range(start: int, end: int, bits: elf.ElfClass) -> str:
     """Format an address range as {start}..{end}"""
     return f'{start:{bits.address_format}}..{end:{bits.address_format}}'
@@ -707,6 +762,8 @@ if __name__ == "__main__":
     if args.string_dump:
         string_dump(args.string_dump, elf_obj)
     if args.dwarf:
+        if 'rawline' in args.dwarf:
+            print_dwarf_rawline(elf_obj)
         if 'frames-interp' in args.dwarf:
             print_dwarf_frames_interp(elf_obj)
         if 'frames' in args.dwarf:
