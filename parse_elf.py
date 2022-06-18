@@ -85,6 +85,7 @@ def create_parser() -> ArgumentParser:
             'rawline',
             'decodedline',
             'info',
+            'abbrev',
             'frames-interp',
             'frames',
         ),
@@ -662,6 +663,29 @@ def print_dwarf_info(
         print()
 
 
+def print_dwarf_abbrev(
+    elf_obj: elf.Elf,
+) -> None:
+    debug_abbrev = next((s for s in elf_obj.sections if s.name == '.debug_abbrev'), None)
+    if debug_abbrev is None:
+        print()
+        return
+    print('\nContents of the .debug_abbrev section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    for abbrev in dwarf.AbbreviationDeclaration.read(sr):
+        if abbrev.code == 1:
+            print(f'  Number TAG ({abbrev.offset:#x})')
+        children = 'has' if abbrev.has_children else 'no'
+        tag_name = dwarf.tags.get(abbrev.tag, '<unknown tag>')
+        print(f'   {abbrev.code}      {tag_name}    [{children} children]')
+        for attr_id, form_id in abbrev.attributes:
+            attr_name = dwarf.attributes.get(attr_id, f'DW_AT value: {attr_id}')
+            attr_form = dwarf.forms.get(form_id, f'DW_FORM value: {form_id}')
+            print(f'    {attr_name:18} {attr_form}')
+    print()
+
+
 def _format_address_range(start: int, end: int, bits: elf.ElfClass) -> str:
     """Format an address range as {start}..{end}"""
     return f'{start:{bits.address_format}}..{end:{bits.address_format}}'
@@ -828,6 +852,8 @@ if __name__ == "__main__":
             print_dwarf_decodedline(elf_obj)
         if 'info' in args.dwarf:
             print_dwarf_info(elf_obj)
+        if 'abbrev' in args.dwarf:
+            print_dwarf_abbrev(elf_obj)
         if 'frames-interp' in args.dwarf:
             print_dwarf_frames_interp(elf_obj)
         if 'frames' in args.dwarf:
