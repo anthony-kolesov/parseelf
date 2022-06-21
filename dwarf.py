@@ -21,6 +21,8 @@ __all__ = [
     'CallFrameTableRow',
     'CallFrameTable',
     'LineNumberConst',
+    'AttributeTypeEncoding',
+    'LanguageEncoding',
     'FileNameEntry',
     'LineNumberStatement',
     'LineNumberProgram',
@@ -248,6 +250,9 @@ class TargetFormatter:
         return self.__df.bits.address_string_width
 
 
+#
+# .eh_frame
+#
 class CfaInstructionCode(Enum):
     operand_types: Sequence[type]
 
@@ -1566,6 +1571,89 @@ class LineNumberStateMachine:
 #
 # .debug_info
 #
+class AttributeTypeEncoding(Enum):
+    human_name: str
+
+    def __new__(cls, value: int, human_name: str = ''):
+        assert len(human_name)
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.human_name = human_name
+        return obj
+
+    DW_ATE_address = (0x01, 'address')
+    DW_ATE_boolean = (0x02, 'boolean')
+    DW_ATE_complex_float = (0x03, 'complex float')
+    DW_ATE_float = (0x04, 'float')
+    DW_ATE_signed = (0x05, 'signed')
+    DW_ATE_signed_char = (0x06, 'signed char')
+    DW_ATE_unsigned = (0x07, 'unsigned')
+    DW_ATE_unsigned_char = (0x08, 'unsigned char')
+    DW_ATE_imaginary_float = (0x09, 'imaginary float')
+    DW_ATE_packed_decimal = (0x0a, 'packed decimal')
+    DW_ATE_numeric_string = (0x0b, 'numeric string')
+    DW_ATE_edited = (0x0c, 'edited')
+    DW_ATE_signed_fixed = (0x0d, 'signed fixed')
+    DW_ATE_unsigned_fixed = (0x0e, 'unsigned fixed')
+    DW_ATE_decimal_float = (0x0f, 'decimal float')
+    DW_ATE_UTF = (0x10, 'unicode string')
+    DW_ATE_UCS = (0x11, 'UCS')
+    DW_ATE_ASCII = (0x12, 'ASCII')
+    DW_ATE_lo_user = (0x80, 'lo_user')
+    DW_ATE_hi_user = (0xff, 'hi_user')
+
+
+class LanguageEncoding(Enum):
+    human_name: str
+
+    def __new__(cls, value: int, human_name: str = ''):
+        assert len(human_name)
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.human_name = human_name
+        return obj
+
+    DW_LANG_C89 = (0x0001, 'ANSI C')
+    DW_LANG_C = (0x0002, 'non-ANSI C')
+    DW_LANG_Ada83 = (0x0003, 'Ada')
+    DW_LANG_C_plus_plus = (0x0004, 'C++')
+    DW_LANG_Cobol74 = (0x0005, 'Cobol 74')
+    DW_LANG_Cobol85 = (0x0006, 'Cobol 85')
+    DW_LANG_Fortran77 = (0x0007, 'FORTRAN 77')
+    DW_LANG_Fortran90 = (0x0008, 'Fortran 90')
+    DW_LANG_Pascal83 = (0x0009, 'ANSI Pascal')
+    DW_LANG_Modula2 = (0x000a, 'Modula 2')
+    DW_LANG_Java = (0x000b, 'Java')
+    DW_LANG_C99 = (0x000c, 'ANSI C99')
+    DW_LANG_Ada95 = (0x000d, 'ADA 95')
+    DW_LANG_Fortran95 = (0x000e, 'Fortran 95')
+    DW_LANG_PLI = (0x000f, 'PLI')
+    DW_LANG_ObjC = (0x0010, 'Objective C')
+    DW_LANG_ObjC_plus_plus = (0x0011, 'Objective C++')
+    DW_LANG_UPC = (0x0012, 'Unified Parallel C')
+    DW_LANG_D = (0x0013, 'D')
+    DW_LANG_Python = (0x0014, 'Python')
+    DW_LANG_OpenCL = (0x0015, 'OpenCL')
+    DW_LANG_Go = (0x0016, 'Go')
+    DW_LANG_Modula3 = (0x0017, 'Modula 3')
+    DW_LANG_Haskell = (0x0018, 'Haskell')
+    DW_LANG_C_plus_plus_03 = (0x0019, 'C++03')
+    DW_LANG_C_plus_plus_11 = (0x001a, 'C++11')
+    DW_LANG_OCaml = (0x001b, 'OCaml')
+    DW_LANG_Rust = (0x001c, 'Rust')
+    DW_LANG_C11 = (0x001d, 'C11')
+    DW_LANG_Swift = (0x001e, 'Swift')
+    DW_LANG_Julia = (0x001f, 'Julia')
+    DW_LANG_Dylan = (0x0020, 'Dylan')
+    DW_LANG_C_plus_plus_14 = (0x0021, 'C++14')
+    DW_LANG_Fortran03 = (0x0022, 'Fortran 03')
+    DW_LANG_Fortran08 = (0x0023, 'Fortran 08')
+    DW_LANG_RenderScript = (0x0024, 'RenderScript')
+    DW_LANG_BLISS = (0x0025, 'BLISS')
+    DW_LANG_lo_user = (0x8000, 'lo_user')
+    DW_LANG_hi_user = (0xffff, 'hi_user')
+
+
 tags = {
     0x01: 'DW_TAG_array_type',
     0x02: 'DW_TAG_class_type',
