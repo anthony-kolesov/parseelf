@@ -46,6 +46,7 @@ class StreamReader:
     def __init__(self, data_format: DataFormat, stream: BinaryIO) -> None:
         self.__df = data_format
         self.__stream = stream
+        self.__is_dwarf32 = True
 
     def bytes(self, size: int) -> bytes:
         """Read the specified amount of bytes from the stream."""
@@ -76,6 +77,10 @@ class StreamReader:
         return self.__df.read_sint8(self.__stream.read(8))
 
     def pointer(self) -> int:
+        """Return a pointer value with size depending on the target bitness.
+
+        Note that this function depends on the target bitness, while ``offset``
+        depends on the DWARF-bitness, which could be different."""
         if self.__df.bits == ElfClass.ELF64:
             return self.uint8()
         return self.uint4()
@@ -146,6 +151,30 @@ class StreamReader:
         """Read DW_FORM_block: uleb128 length followed by bytes."""
         return self.bytes(self.uleb128())
 
+    def length(self) -> int:
+        """Read a DWARF length field and set bitness accordingly.
+
+        The length field can be used to dynamically identify if this is the
+        32-bit or 64-bit DWARF."""
+        length = self.uint4()
+        if length == 0xffffffff:
+            self.__is_dwarf32 = False
+            return self.uint8()
+        else:
+            self.__is_dwarf32 = True
+            assert length < 0xfffffff0  # Reserved values.
+            return length
+
+    def offset(self) -> int:
+        """Return DWARF offset depending on whether it is 32-bit DWARF or 64-bit.
+
+        Note that unlike ``pointer`` it depends on the DWARF content bitness,
+        not on the target bitness."""
+        if self.__is_dwarf32:
+            return self.uint4()
+        else:
+            return self.uint8()
+
     @property
     def current_position(self) -> int:
         """Return current position in the stream."""
@@ -166,6 +195,15 @@ class StreamReader:
     @property
     def data_format(self) -> DataFormat:
         return self.__df
+
+    @property
+    def is_dwarf32(self) -> bool:
+        """Return whether the stream is DWARF 32-bit or 64-bit.
+
+        The value can change after reading the ``length()`` field. Streams are
+        always considered 32-bit by default, read a ``length()`` field to
+        initialize this property correctly."""
+        return self.__is_dwarf32
 
 
 class TargetFormatter:
@@ -1270,20 +1308,13 @@ class LineNumberProgram:
     def read(sr: StreamReader) -> Iterator['LineNumberProgram']:
         while not sr.at_eof:
             offset = sr.current_position
-            length = sr.uint4()
-            if length == 0xffffffff:
-                # Read extended length.
-                length = sr.uint8()
-                is_dwarf32 = False
-            else:
-                is_dwarf32 = True
-                assert length < 0xfffffff0  # Reserved values.
+            length = sr.length()
 
             ln_offset = sr.current_position
             version = sr.uint2()
             assert version == 3, "Only DWARF v3 .debug_line is supported."
 
-            header_length = sr.uint4() if is_dwarf32 else sr.uint8()
+            header_length = sr.offset()
             minimum_instruction_length = sr.uint1()
             default_is_stmt = sr.uint1()
             line_base = sr.sint1()
@@ -1738,27 +1769,20 @@ class CompilationUnit:
     def read(sr: StreamReader) -> Iterator['CompilationUnit']:
         while not sr.at_eof:
             offset = sr.current_position
-            length = sr.uint4()
-            if length == 0xffffffff:
-                # Read extended length.
-                length = sr.uint8()
-                is_dwarf32 = False
-            else:
-                is_dwarf32 = True
-                assert length < 0xfffffff0  # Reserved values.
+            length = sr.length()
 
             cu_offset = sr.current_position
             version = sr.uint2()
             assert version == 4, "Only DWARF v4 .debug_info is supported."
 
-            debug_abbrev_offset = sr.uint4() if is_dwarf32 else sr.uint8()
+            debug_abbrev_offset = sr.offset()
             address_size = sr.uint1()
 
             sr.set_abs_position(cu_offset + length)
             yield CompilationUnit(
                 offset,
                 length,
-                is_dwarf32,
+                sr.is_dwarf32,
                 version,
                 debug_abbrev_offset,
                 address_size,
