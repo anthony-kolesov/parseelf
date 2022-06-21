@@ -677,7 +677,7 @@ def print_dwarf_abbrev(
         if abbrev.code == 1:
             print(f'  Number TAG ({abbrev.offset:#x})')
         children = 'has' if abbrev.has_children else 'no'
-        tag_name = dwarf.tags.get(abbrev.tag, '<unknown tag>')
+        tag_name = dwarf.TagEncoding(abbrev.tag).name
         print(f'   {abbrev.code}      {tag_name}    [{children} children]')
         for attr_id, form_id in abbrev.attributes:
             attr_name = dwarf.attributes.get(attr_id, f'DW_AT value: {attr_id}')
