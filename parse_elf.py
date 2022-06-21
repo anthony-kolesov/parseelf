@@ -666,14 +666,7 @@ def print_dwarf_info(
 def print_dwarf_abbrev(
     elf_obj: elf.Elf,
 ) -> None:
-    debug_abbrev = next((s for s in elf_obj.sections if s.name == '.debug_abbrev'), None)
-    if debug_abbrev is None:
-        print()
-        return
-    print('\nContents of the .debug_abbrev section:\n')
-    stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
-    sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    for abbrev in dwarf.AbbreviationDeclaration.read(sr):
+    def print_abbrev(abbrev: dwarf.AbbreviationDeclaration) -> None:
         if abbrev.code == 1:
             print(f'  Number TAG ({abbrev.offset:#x})')
         children = 'has' if abbrev.has_children else 'no'
@@ -683,6 +676,18 @@ def print_dwarf_abbrev(
             attr_name = dwarf.attributes.get(attr_id, f'DW_AT value: {attr_id}')
             attr_form = dwarf.forms.get(form_id, f'DW_FORM value: {form_id}')
             print(f'    {attr_name:18} {attr_form}')
+        for child in abbrev.children:
+            print_abbrev(child)
+
+    debug_abbrev = next((s for s in elf_obj.sections if s.name == '.debug_abbrev'), None)
+    if debug_abbrev is None:
+        print()
+        return
+    print('\nContents of the .debug_abbrev section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    for abbrev in dwarf.AbbreviationDeclaration.read(sr):
+        print_abbrev(abbrev)
     print()
 
 

@@ -1891,7 +1891,9 @@ class AbbreviationDeclaration:
     tag: int
     has_children: bool
     attributes: Sequence[tuple[int, int]]
+    children: Sequence['AbbreviationDeclaration']
     offset: int
+    level: int
 
     @staticmethod
     def read_attributes(sr: StreamReader) -> Iterator[tuple[int, int]]:
@@ -1903,22 +1905,28 @@ class AbbreviationDeclaration:
                 return
 
     @staticmethod
-    def read(sr: StreamReader) -> Iterator['AbbreviationDeclaration']:
+    def read(sr: StreamReader, level: int = 0) -> Iterator['AbbreviationDeclaration']:
         while not sr.at_eof:
             offset = sr.current_position
             code = sr.uleb128()
             if code == 0:
                 # An end of the compilation unit abbreviation.
-                # There can be a next CU, though.
-                continue
+                return
             tag = sr.uleb128()
             has_children = bool(sr.uint1())
             attributes = tuple(AbbreviationDeclaration.read_attributes(sr))
+
+            if has_children:
+                children = tuple(AbbreviationDeclaration.read(sr, level + 1))
+            else:
+                children = tuple()
 
             yield AbbreviationDeclaration(
                 code,
                 tag,
                 has_children,
                 attributes,
+                children,
                 offset,
+                level,
             )
