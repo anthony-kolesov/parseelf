@@ -6,9 +6,9 @@
 __all__ = [
     'StreamReader',
     'TargetFormatter',
-    'CfaInstructionCode',
+    'CfaInstructionEncoding',
     'CfaInstruction',
-    'ExpressionOperationCode',
+    'ExpressionOperationEncoding',
     'ExpressionOperation',
     'DW_EH_PE_ValueType',
     'DW_EH_PE_Relation',
@@ -20,7 +20,7 @@ __all__ = [
     'RegisterRule',
     'CallFrameTableRow',
     'CallFrameTable',
-    'LineNumberConst',
+    'LineNumberEncoding',
     'AttributeTypeEncoding',
     'LanguageEncoding',
     'FileNameEntry',
@@ -253,7 +253,7 @@ class TargetFormatter:
 #
 # .eh_frame
 #
-class CfaInstructionCode(Enum):
+class CfaInstructionEncoding(Enum):
     operand_types: Sequence[type]
 
     def __new__(cls, value: int, operand_types: Sequence[type] = tuple()):
@@ -292,7 +292,7 @@ class CfaInstructionCode(Enum):
 
 class CfaInstruction(NamedTuple):
     """A class to represent call frame instruction with operands."""
-    instruction: CfaInstructionCode
+    instruction: CfaInstructionEncoding
     operands: tuple
 
     @staticmethod
@@ -304,23 +304,23 @@ class CfaInstruction(NamedTuple):
             match b >> 6:
                 case 0:
                     # 'Normal' instructions.
-                    instr = CfaInstructionCode(b & 0x3F)
+                    instr = CfaInstructionEncoding(b & 0x3F)
                     op_values = tuple(operand_type(sr) for operand_type in instr.operand_types)
                     match instr:
-                        case CfaInstructionCode.DW_CFA_def_cfa_expression:
+                        case CfaInstructionEncoding.DW_CFA_def_cfa_expression:
                             expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[0]))))
                             yield CfaInstruction(instr, (expr, ))
-                        case CfaInstructionCode.DW_CFA_expression | CfaInstructionCode.DW_CFA_val_expression:
+                        case CfaInstructionEncoding.DW_CFA_expression | CfaInstructionEncoding.DW_CFA_val_expression:
                             expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[1]))))
                             yield CfaInstruction(instr, (op_values[0], expr))
                         case _:
                             yield CfaInstruction(instr, op_values)
                 case 1:
-                    yield CfaInstruction(CfaInstructionCode.DW_CFA_advance_loc, (b & 0x3F,))
+                    yield CfaInstruction(CfaInstructionEncoding.DW_CFA_advance_loc, (b & 0x3F,))
                 case 2:
-                    yield CfaInstruction(CfaInstructionCode.DW_CFA_offset, (b & 0x3F, sr.uleb128()))
+                    yield CfaInstruction(CfaInstructionEncoding.DW_CFA_offset, (b & 0x3F, sr.uleb128()))
                 case 3:
-                    yield CfaInstruction(CfaInstructionCode.DW_CFA_restore, (b & 0x3F,))
+                    yield CfaInstruction(CfaInstructionEncoding.DW_CFA_restore, (b & 0x3F,))
                 case _:
                     raise NotImplementedError('Unsupported call frame instruction.')
 
@@ -340,63 +340,63 @@ class CfaInstruction(NamedTuple):
         name = self.instruction.name
         args = self.operands
         match self.instruction:
-            case CfaInstructionCode.DW_CFA_set_loc:
+            case CfaInstructionEncoding.DW_CFA_set_loc:
                 return f'{name}: {args[0]:016x}'
-            case (CfaInstructionCode.DW_CFA_advance_loc |
-                  CfaInstructionCode.DW_CFA_advance_loc1 |
-                  CfaInstructionCode.DW_CFA_advance_loc2 |
-                  CfaInstructionCode.DW_CFA_advance_loc4):
+            case (CfaInstructionEncoding.DW_CFA_advance_loc |
+                  CfaInstructionEncoding.DW_CFA_advance_loc1 |
+                  CfaInstructionEncoding.DW_CFA_advance_loc2 |
+                  CfaInstructionEncoding.DW_CFA_advance_loc4):
                 return f'{name}: {args[0] * caf} to {frame_pc:{fmt.pointer_format}}'
 
-            case CfaInstructionCode.DW_CFA_def_cfa:
+            case CfaInstructionEncoding.DW_CFA_def_cfa:
                 return f'{name}: {fmt.get_full_regname(args[0])} ofs {args[1]}'
-            case CfaInstructionCode.DW_CFA_def_cfa_sf:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_sf:
                 return f'{name}: {fmt.get_full_regname(args[0])} ofs {args[1] * daf}'
-            case CfaInstructionCode.DW_CFA_def_cfa_register:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_register:
                 return f'{name}: {fmt.get_full_regname(args[0])}'
-            case CfaInstructionCode.DW_CFA_def_cfa_offset:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_offset:
                 return f'{name}: {args[0]}'
-            case CfaInstructionCode.DW_CFA_def_cfa_offset_sf:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_offset_sf:
                 return f'{name}: {args[0] * daf}'
-            case CfaInstructionCode.DW_CFA_def_cfa_expression:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_expression:
                 expr_str = ExpressionOperation.objdump_format_seq(fmt, args[0])
                 return f'{name} ({expr_str})'
 
-            case (CfaInstructionCode.DW_CFA_undefined |
-                  CfaInstructionCode.DW_CFA_same_value):
+            case (CfaInstructionEncoding.DW_CFA_undefined |
+                  CfaInstructionEncoding.DW_CFA_same_value):
                 return f'{name}: {fmt.get_full_regname(args[0])}'
 
-            case (CfaInstructionCode.DW_CFA_offset |
-                  CfaInstructionCode.DW_CFA_offset_extended |
-                  CfaInstructionCode.DW_CFA_offset_extended_sf):
+            case (CfaInstructionEncoding.DW_CFA_offset |
+                  CfaInstructionEncoding.DW_CFA_offset_extended |
+                  CfaInstructionEncoding.DW_CFA_offset_extended_sf):
                 return f'{name}: {fmt.get_full_regname(args[0])} at cfa{args[1] * daf:+}'
 
-            case (CfaInstructionCode.DW_CFA_val_offset |
-                  CfaInstructionCode.DW_CFA_val_offset_sf):
+            case (CfaInstructionEncoding.DW_CFA_val_offset |
+                  CfaInstructionEncoding.DW_CFA_val_offset_sf):
                 return f'{name}: {fmt.get_full_regname(args[0])} at cfa{args[1] * daf:+}'
 
-            case CfaInstructionCode.DW_CFA_register:
+            case CfaInstructionEncoding.DW_CFA_register:
                 return f'{name}: {fmt.get_full_regname(args[0])} in {fmt.get_full_regname(args[1])}'
 
-            case CfaInstructionCode.DW_CFA_expression:
+            case CfaInstructionEncoding.DW_CFA_expression:
                 expr_str = ExpressionOperation.objdump_format_seq(fmt, args[1])
                 return f'{name}: {fmt.get_full_regname(args[0])} ({expr_str})'
-            case CfaInstructionCode.DW_CFA_val_expression:
+            case CfaInstructionEncoding.DW_CFA_val_expression:
                 expr_str = ExpressionOperation.objdump_format_seq(fmt, args[1])
                 return f'{name}: {fmt.get_full_regname(args[0])} ({expr_str})'
 
-            case (CfaInstructionCode.DW_CFA_restore |
-                  CfaInstructionCode.DW_CFA_restore_extended):
+            case (CfaInstructionEncoding.DW_CFA_restore |
+                  CfaInstructionEncoding.DW_CFA_restore_extended):
                 return f'{name}: {fmt.get_full_regname(args[0])}'
 
-            case (CfaInstructionCode.DW_CFA_remember_state |
-                  CfaInstructionCode.DW_CFA_restore_state |
-                  CfaInstructionCode.DW_CFA_nop |
+            case (CfaInstructionEncoding.DW_CFA_remember_state |
+                  CfaInstructionEncoding.DW_CFA_restore_state |
+                  CfaInstructionEncoding.DW_CFA_nop |
                   _):
                 return name
 
 
-class ExpressionOperationCode(Enum):
+class ExpressionOperationEncoding(Enum):
     """A class to represent DWARF expression operations.
 
     Contains operation code and argument types (if any).
@@ -571,14 +571,14 @@ class ExpressionOperationCode(Enum):
 
 class ExpressionOperation(NamedTuple):
     """A class to represent DWARF expression operation and operand values."""
-    operation: ExpressionOperationCode
+    operation: ExpressionOperationEncoding
     operands: tuple
 
     @staticmethod
     def read(sr: StreamReader) -> Iterable['ExpressionOperation']:
         while not sr.at_eof:
             code = sr.uint1()
-            op = ExpressionOperationCode(code)
+            op = ExpressionOperationEncoding(code)
             operand_values = tuple(operand_type(sr) for operand_type in op.operand_types)
             yield ExpressionOperation(op, operand_values)
 
@@ -595,14 +595,14 @@ class ExpressionOperation(NamedTuple):
                 return f'reg{regnum} ({dwname})'
             return f'reg{regnum}'
 
-        if ExpressionOperationCode.DW_OP_reg0.value < self.operation.value < ExpressionOperationCode.DW_OP_reg31.value:
+        if ExpressionOperationEncoding.DW_OP_reg0.value < self.operation.value < ExpressionOperationEncoding.DW_OP_reg31.value:
             regnum = self.operation.value - 0x50
             return f'DW_OP_{rn(regnum)}'
-        elif (ExpressionOperationCode.DW_OP_breg0.value < self.operation.value
-              < ExpressionOperationCode.DW_OP_breg31.value):
+        elif (ExpressionOperationEncoding.DW_OP_breg0.value < self.operation.value
+              < ExpressionOperationEncoding.DW_OP_breg31.value):
             regnum = self.operation.value - 0x70
             return f'DW_OP_b{rn(regnum)}: {self.operands[0]}'
-        elif ExpressionOperationCode.DW_OP_implicit_value == self:
+        elif ExpressionOperationEncoding.DW_OP_implicit_value == self:
             return f'{self.operation.name}: {self.operands[0].hex()}'
         operands_str = operands_str = ': ' + ' '.join(self.operands) if len(self.operands) > 0 else ''
         return self.operation.name + operands_str
@@ -992,7 +992,7 @@ class CfaDefinition:
 @dataclasses.dataclass(frozen=True)
 class RegisterRule:
     """A class to represent a single register rule in the frame's unwind table."""
-    instruction: CfaInstructionCode = CfaInstructionCode.DW_CFA_undefined
+    instruction: CfaInstructionEncoding = CfaInstructionEncoding.DW_CFA_undefined
 
     _: dataclasses.KW_ONLY
     reg: int = 0
@@ -1002,19 +1002,19 @@ class RegisterRule:
     def objdump_format(self, fmt: TargetFormatter) -> str:
         """Print this register rule as a table cell in style of objdump."""
         match self.instruction:
-            case CfaInstructionCode.DW_CFA_undefined:
+            case CfaInstructionEncoding.DW_CFA_undefined:
                 return 'u'
-            case CfaInstructionCode.DW_CFA_same_value:
+            case CfaInstructionEncoding.DW_CFA_same_value:
                 return 's'
-            case CfaInstructionCode.DW_CFA_expression:
+            case CfaInstructionEncoding.DW_CFA_expression:
                 return 'exp'
-            case CfaInstructionCode.DW_CFA_register:
+            case CfaInstructionEncoding.DW_CFA_register:
                 return fmt.get_full_regname(self.reg)
-            case (CfaInstructionCode.DW_CFA_val_offset |
-                  CfaInstructionCode.DW_CFA_val_offset_sf |
-                  CfaInstructionCode.DW_CFA_val_expression |
-                  CfaInstructionCode.DW_CFA_restore |
-                  CfaInstructionCode.DW_CFA_restore_extended):
+            case (CfaInstructionEncoding.DW_CFA_val_offset |
+                  CfaInstructionEncoding.DW_CFA_val_offset_sf |
+                  CfaInstructionEncoding.DW_CFA_val_expression |
+                  CfaInstructionEncoding.DW_CFA_restore |
+                  CfaInstructionEncoding.DW_CFA_restore_extended):
                 raise NotImplementedError()
             case _:
                 return f'c{self.offset:+}'
@@ -1050,7 +1050,7 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
     def do_instruction(self, *instructions: CfaInstruction) -> None:
         """Execute specified instructions on the call frame table."""
         for instr in instructions:
-            if instr.instruction == CfaInstructionCode.DW_CFA_nop:
+            if instr.instruction == CfaInstructionEncoding.DW_CFA_nop:
                 continue
 
             current_row = self.__rows[-1] if len(self.__rows) else self.__initial
@@ -1068,70 +1068,70 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
         args = instr.operands
         match instr.instruction:
             # Location Instructions.
-            case CfaInstructionCode.DW_CFA_set_loc:
+            case CfaInstructionEncoding.DW_CFA_set_loc:
                 return dataclasses.replace(current_row, loc=args[0])
-            case (CfaInstructionCode.DW_CFA_advance_loc |
-                  CfaInstructionCode.DW_CFA_advance_loc1 |
-                  CfaInstructionCode.DW_CFA_advance_loc2 |
-                  CfaInstructionCode.DW_CFA_advance_loc4):
+            case (CfaInstructionEncoding.DW_CFA_advance_loc |
+                  CfaInstructionEncoding.DW_CFA_advance_loc1 |
+                  CfaInstructionEncoding.DW_CFA_advance_loc2 |
+                  CfaInstructionEncoding.DW_CFA_advance_loc4):
                 new_loc = current_row.loc + args[0] * self.__cie.code_alignment_factor
                 return dataclasses.replace(current_row, loc=new_loc)
 
             # CFA Definition Instructions.
-            case CfaInstructionCode.DW_CFA_def_cfa:
+            case CfaInstructionEncoding.DW_CFA_def_cfa:
                 return dataclasses.replace(current_row, cfa=CfaDefinition(args[0], args[1]))
-            case CfaInstructionCode.DW_CFA_def_cfa_sf:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_sf:
                 cfa = CfaDefinition(args[0], args[1] * self.__cie.data_alignment_factor)
                 return dataclasses.replace(current_row, cfa=cfa)
-            case CfaInstructionCode.DW_CFA_def_cfa_register:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_register:
                 cfa = dataclasses.replace(current_row.cfa, reg=args[0])
                 return dataclasses.replace(current_row, cfa=cfa)
-            case CfaInstructionCode.DW_CFA_def_cfa_offset:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_offset:
                 cfa = dataclasses.replace(current_row.cfa, offset=args[0])
                 return dataclasses.replace(current_row, cfa=cfa)
-            case CfaInstructionCode.DW_CFA_def_cfa_offset_sf:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_offset_sf:
                 cfa = dataclasses.replace(current_row.cfa, offset=args[0] * self.__cie.data_alignment_factor)
                 return dataclasses.replace(current_row, cfa=cfa)
-            case CfaInstructionCode.DW_CFA_def_cfa_expression:
+            case CfaInstructionEncoding.DW_CFA_def_cfa_expression:
                 cfa = CfaDefinition(0, 0, expression=args[0])
                 return dataclasses.replace(current_row, cfa=cfa)
 
             # Register_rules
-            case CfaInstructionCode.DW_CFA_undefined:
+            case CfaInstructionEncoding.DW_CFA_undefined:
                 return self.__set_rule(current_row, args[0], RegisterRule())
-            case (CfaInstructionCode.DW_CFA_offset |
-                  CfaInstructionCode.DW_CFA_offset_extended |
-                  CfaInstructionCode.DW_CFA_offset_extended_sf):
+            case (CfaInstructionEncoding.DW_CFA_offset |
+                  CfaInstructionEncoding.DW_CFA_offset_extended |
+                  CfaInstructionEncoding.DW_CFA_offset_extended_sf):
                 return self.__set_rule(
                     current_row,
                     args[0],
                     RegisterRule(instr.instruction, offset=args[1] * self.__cie.data_alignment_factor)
                 )
-            case CfaInstructionCode.DW_CFA_register:
+            case CfaInstructionEncoding.DW_CFA_register:
                 return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, reg=args[1]))
-            case (CfaInstructionCode.DW_CFA_val_offset |
-                  CfaInstructionCode.DW_CFA_val_offset_sf):
+            case (CfaInstructionEncoding.DW_CFA_val_offset |
+                  CfaInstructionEncoding.DW_CFA_val_offset_sf):
                 raise NotImplementedError(str(instr))
-            case CfaInstructionCode.DW_CFA_expression:
+            case CfaInstructionEncoding.DW_CFA_expression:
                 return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, expression=args[1]))
-            case (CfaInstructionCode.DW_CFA_restore |
-                  CfaInstructionCode.DW_CFA_restore_extended):
+            case (CfaInstructionEncoding.DW_CFA_restore |
+                  CfaInstructionEncoding.DW_CFA_restore_extended):
                 return self.__set_rule(
                     current_row,
                     args[0],
                     self.__initial.register_rules.get(args[0], RegisterRule()),
                 )
 
-            case CfaInstructionCode.DW_CFA_remember_state:
+            case CfaInstructionEncoding.DW_CFA_remember_state:
                 self.__state_stack.append(current_row)
                 return current_row
 
-            case CfaInstructionCode.DW_CFA_restore_state:
+            case CfaInstructionEncoding.DW_CFA_restore_state:
                 stored_row = self.__state_stack.pop()
                 new_rules = ChainMap(stored_row.register_rules).new_child()
                 return dataclasses.replace(current_row, cfa=stored_row.cfa, register_rules=new_rules)
 
-            case CfaInstructionCode.DW_CFA_nop | _:
+            case CfaInstructionEncoding.DW_CFA_nop | _:
                 return current_row
 
     def __set_rule(
@@ -1243,8 +1243,8 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
 #
 # .debug_line support
 #
-class LineNumberConst:
-    """A container for line number constants."""
+class LineNumberEncoding:
+    """A container for line number opcodes."""
     DW_LNS_copy = 1
     DW_LNS_advance_pc = 2
     DW_LNS_advance_line = 3
@@ -1258,9 +1258,14 @@ class LineNumberConst:
     DW_LNS_set_epilogue_begin = 11
     DW_LNS_set_isa = 12
 
+
+class LineNumberExtendedEncoding:
     DW_LNE_end_sequence = 1
     DW_LNE_set_address = 2
     DW_LNE_define_file = 3
+    DW_LNE_set_descriminator = 4
+    DW_LNE_lo_user = 0x80
+    DW_LNE_hi_user = 0xff
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1347,18 +1352,18 @@ class LineNumberProgram:
                     xopcode = sr.uint1()
                     operands.append(xopcode)
                     match xopcode:
-                        case LineNumberConst.DW_LNE_end_sequence:
+                        case LineNumberExtendedEncoding.DW_LNE_end_sequence:
                             pass  # No arguments.
-                        case LineNumberConst.DW_LNE_set_address:
+                        case LineNumberExtendedEncoding.DW_LNE_set_address:
                             operands.append(sr.pointer())
-                        case LineNumberConst.DW_LNE_define_file:
+                        case LineNumberExtendedEncoding.DW_LNE_define_file:
                             operands.append(next(FileNameEntry.read(sr)))
                         case _:
                             # Read remaining bytes, minus xopcode
                             operands.append(sr.bytes(instr_sz - 1))
                 elif opcode < opcode_base:
                     # Standard opcodes.
-                    if opcode == LineNumberConst.DW_LNS_fixed_advance_pc:
+                    if opcode == LineNumberEncoding.DW_LNS_fixed_advance_pc:
                         operands.append(sr.uint2())  # Special case opcode.
                     else:
                         for x in range(opcode_operands[opcode-1]):
@@ -1458,15 +1463,15 @@ class LineNumberStateMachine:
         # Extended opcode?
         if lns.opcode == 0:
             match lns.operands[0]:
-                case LineNumberConst.DW_LNE_end_sequence:
+                case LineNumberExtendedEncoding.DW_LNE_end_sequence:
                     self.end_sequence = True
                     self.__append_row()
                     self.__reset()
                     return f'Extended opcode {lns.operands[0]}: End of Sequence'
-                case LineNumberConst.DW_LNE_set_address:
+                case LineNumberExtendedEncoding.DW_LNE_set_address:
                     self.address = lns.operands[1]
                     return f'Extended opcode {lns.operands[0]}: set Address to {lns.operands[1]:#x}'
-                case LineNumberConst.DW_LNE_define_file:
+                case LineNumberExtendedEncoding.DW_LNE_define_file:
                     self.file_names.append(lns.operands[1])
                     return (
                         f'Extended opcode {lns.operands[0]}: define new File Table entry\n'
@@ -1501,30 +1506,30 @@ class LineNumberStateMachine:
 
         # Standard opcode?
         match lns.opcode:
-            case LineNumberConst.DW_LNS_copy:
+            case LineNumberEncoding.DW_LNS_copy:
                 self.__append_row()
                 self.basic_block = self.prologue_end = self.epilogue_begins = False
                 return 'Copy'
-            case LineNumberConst.DW_LNS_advance_pc:
+            case LineNumberEncoding.DW_LNS_advance_pc:
                 addr_delta = lns.operands[0] * self.__header.minimum_instruction_length
                 self.address += addr_delta
                 return f'Advance PC by {addr_delta} to {self.address:#x}'
-            case LineNumberConst.DW_LNS_advance_line:
+            case LineNumberEncoding.DW_LNS_advance_line:
                 self.line += lns.operands[0]
                 return f'Advance Line by {lns.operands[0]} to {self.line}'
-            case LineNumberConst.DW_LNS_set_file:
+            case LineNumberEncoding.DW_LNS_set_file:
                 self.file = lns.operands[0]
                 return f'Set File Name to entry {lns.operands[0]} in the File Name Table'
-            case LineNumberConst.DW_LNS_set_column:
+            case LineNumberEncoding.DW_LNS_set_column:
                 self.column = lns.operands[0]
                 return f'Set column to {lns.operands[0]}'
-            case LineNumberConst.DW_LNS_negate_stm:
+            case LineNumberEncoding.DW_LNS_negate_stm:
                 self.is_stmt = not self.is_stmt
                 return f'Set is_stmt to {self.is_stmt:d}'
-            case LineNumberConst.DW_LNS_set_basic_block:
+            case LineNumberEncoding.DW_LNS_set_basic_block:
                 self.basic_block = True
                 return 'Set basic block'
-            case LineNumberConst.DW_LNS_const_add_pc:
+            case LineNumberEncoding.DW_LNS_const_add_pc:
                 # It is not abundantly clear from the spec if opcode 255 is an
                 # adjusted opcode value or not. I assume it is not adjusted,
                 # hence it is adjusted in th the __special_opcode_address_delta.
@@ -1532,21 +1537,21 @@ class LineNumberStateMachine:
                     * self.__header.minimum_instruction_length
                 self.address += addr_delta
                 return f'Advance PC by constant {addr_delta} to {self.address:#x}'
-            case LineNumberConst.DW_LNS_fixed_advance_pc:
+            case LineNumberEncoding.DW_LNS_fixed_advance_pc:
                 self.address += lns.operands[0]
                 return f'Advance PC by fixed size amount {lns.operands[0]} to {self.address:#x}'
-            case LineNumberConst.DW_LNS_set_prologue_end:
+            case LineNumberEncoding.DW_LNS_set_prologue_end:
                 self.prologue_end = True
                 return 'Set prologue_end to true'
-            case LineNumberConst.DW_LNS_set_epilogue_begin:
+            case LineNumberEncoding.DW_LNS_set_epilogue_begin:
                 self.epilogue_begins = True
                 return 'Set epilogue_begin to true'
-            case LineNumberConst.DW_LNS_set_isa:
+            case LineNumberEncoding.DW_LNS_set_isa:
                 self.isa = lns.operands[0]
                 return f'Set ISA to {self.isa}'
             case _:
                 operands = self.__header.standard_opcode_operands[lns.opcode]
-                return f'Unknown opcode {lns.opcode} with operands:' + ', '.join(format(op, '#x') for op in operands)
+                return f'Unknown opcode {lns.opcode} with {operands} operands.'
 
     def __append_row(self) -> None:
         """Append a new row to the table based on current state of registers."""
