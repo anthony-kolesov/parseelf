@@ -673,11 +673,8 @@ def print_dwarf_abbrev(
         tag_name = dwarf.TagEncoding(abbrev.tag).name
         print(f'   {abbrev.code}      {tag_name}    [{children} children]')
         for attr_id, form_id in abbrev.attributes:
-            if attr_id in dwarf.AttributeEncoding._value2member_map_:
-                attr_name = dwarf.AttributeEncoding(attr_id).name
-            else:
-                attr_name = f'DW_AT value: {attr_id}'
-            attr_form = dwarf.forms.get(form_id, f'DW_FORM value: {form_id}')
+            attr_name = dwarf.AttributeEncoding(attr_id).name if attr_id else f'DW_AT value: {attr_id}'
+            attr_form = dwarf.FormEncoding(form_id).name if form_id else f'DW_FORM value: {form_id}'
             print(f'    {attr_name:18} {attr_form}')
         for child in abbrev.children:
             print_abbrev(child)

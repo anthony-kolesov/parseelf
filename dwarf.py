@@ -25,6 +25,7 @@ __all__ = [
     'LanguageEncoding',
     'TagEncoding',
     'AttributeEncoding',
+    'FormEncoding',
     'FileNameEntry',
     'LineNumberStatement',
     'LineNumberProgram',
@@ -154,6 +155,18 @@ class StreamReader:
     def block(self) -> builtins.bytes:
         """Read DW_FORM_block: uleb128 length followed by bytes."""
         return self.bytes(self.uleb128())
+
+    def block1(self) -> builtins.bytes:
+        """Read DW_FORM_block1: 1 byte length followed by bytes."""
+        return self.bytes(self.uint1())
+
+    def block2(self) -> builtins.bytes:
+        """Read DW_FORM_block2: 2 byte length followed by bytes."""
+        return self.bytes(self.uint2())
+
+    def block4(self) -> builtins.bytes:
+        """Read DW_FORM_block1: 4 byte length followed by bytes."""
+        return self.bytes(self.uint4())
 
     def length(self) -> int:
         """Read a DWARF length field and set bitness accordingly.
@@ -1820,35 +1833,50 @@ class AttributeEncoding(Enum):
     DW_AT_GNU_all_tail_call_sites = 0x2116
 
 
-forms = {
-    0x01: 'DW_FORM_addr',
-    0x03: 'DW_FORM_block2',
-    0x04: 'DW_FORM_block4',
-    0x05: 'DW_FORM_data2',
-    0x06: 'DW_FORM_data4',
-    0x07: 'DW_FORM_data8',
-    0x08: 'DW_FORM_string',
-    0x09: 'DW_FORM_block',
-    0x0a: 'DW_FORM_block1',
-    0x0b: 'DW_FORM_data1',
-    0x0c: 'DW_FORM_flag',
-    0x0d: 'DW_FORM_sdata',
-    0x0e: 'DW_FORM_strp',
-    0x0f: 'DW_FORM_udata',
-    0x10: 'DW_FORM_ref_addr',
-    0x11: 'DW_FORM_ref1',
-    0x12: 'DW_FORM_ref2',
-    0x13: 'DW_FORM_ref4',
-    0x14: 'DW_FORM_ref8',
-    0x15: 'DW_FORM_ref_udata',
-    0x16: 'DW_FORM_indirect',
-    0x17: 'DW_FORM_sec_offset',
-    0x18: 'DW_FORM_exprloc',
-    0x19: 'DW_FORM_flag_present',
-    0x20: 'DW_FORM_ref_sig8',
-}
+class FormEncoding(Enum):
+    reader: type
 
+    def __new__(cls, value: int, reader: type = None):
+        assert reader is not None
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.reader = reader
+        return obj
 
+    @staticmethod
+    def _read_indirect(sr: StreamReader) -> tuple['FormEncoding', object]:
+        """Read an indirect form.
+
+        Returns a tuple of a FormEncoding and corresponding value."""
+        form_id = sr.uleb128()
+        form = FormEncoding(form_id)
+        return form, form.reader(sr)
+
+    DW_FORM_addr = (0x01, StreamReader.pointer)
+    DW_FORM_block2 = (0x03, StreamReader.block2)
+    DW_FORM_block4 = (0x04, StreamReader.block4)
+    DW_FORM_data2 = (0x05, StreamReader.uint2)
+    DW_FORM_data4 = (0x06, StreamReader.uint4)
+    DW_FORM_data8 = (0x07, StreamReader.uint8)
+    DW_FORM_string = (0x08, StreamReader.cstring)
+    DW_FORM_block = (0x09, StreamReader.block)
+    DW_FORM_block1 = (0x0a, StreamReader.block1)
+    DW_FORM_data1 = (0x0b, StreamReader.uint1)
+    DW_FORM_flag = (0x0c, StreamReader.uint1)
+    DW_FORM_sdata = (0x0d, StreamReader.sleb128)
+    DW_FORM_strp = (0x0e, StreamReader.offset)
+    DW_FORM_udata = (0x0f, StreamReader.uleb128)
+    DW_FORM_ref_addr = (0x10, StreamReader.offset)
+    DW_FORM_ref1 = (0x11, StreamReader.uint1)
+    DW_FORM_ref2 = (0x12, StreamReader.uint2)
+    DW_FORM_ref4 = (0x13, StreamReader.uint4)
+    DW_FORM_ref8 = (0x14, StreamReader.uint8)
+    DW_FORM_ref_udata = (0x15, StreamReader.uleb128)
+    DW_FORM_indirect = (0x16, _read_indirect)
+    DW_FORM_sec_offset = (0x17,  StreamReader.offset)
+    DW_FORM_exprloc = (0x18, StreamReader.block)
+    DW_FORM_flag_present = (0x19, lambda _: 1)
+    DW_FORM_ref_sig8 = (0x20, StreamReader.uint8)
 @dataclasses.dataclass(frozen=True)
 class CompilationUnit:
     offset: int
