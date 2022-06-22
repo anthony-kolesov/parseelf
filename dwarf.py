@@ -610,7 +610,8 @@ class ExpressionOperation(NamedTuple):
                 return f'reg{regnum} ({dwname})'
             return f'reg{regnum}'
 
-        if ExpressionOperationEncoding.DW_OP_reg0.value < self.operation.value < ExpressionOperationEncoding.DW_OP_reg31.value:
+        if (ExpressionOperationEncoding.DW_OP_reg0.value < self.operation.value
+           and self.operation.value < ExpressionOperationEncoding.DW_OP_reg31.value):
             regnum = self.operation.value - 0x50
             return f'DW_OP_{rn(regnum)}'
         elif (ExpressionOperationEncoding.DW_OP_breg0.value < self.operation.value
