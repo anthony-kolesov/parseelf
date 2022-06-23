@@ -654,13 +654,13 @@ def print_dwarf_info(
     print('\nContents of the .debug_info section:\n')
     stream = BytesIO(elf_obj.section_content(debug_info.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    for cu in dwarf.CompilationUnit.read(sr):
+    for cu in dwarf.CompilationUnit.read(sr, debug_abbrev_sr):
         print(f'  Compilation Unit @ offset {cu.offset:#x}:')
         print(f'   Length:        {cu.length:#x} ({"32" if cu.is_dwarf32 else "64"}-bit)')
         print(f'   Version:       {cu.version}')
         print(f'   Abbrev Offset: {cu.debug_abbrev_offset:#x}')
         print(f'   Pointer Size:  {cu.address_size}')
-        print()
+    print()
 
 
 def print_dwarf_abbrev(
@@ -672,9 +672,10 @@ def print_dwarf_abbrev(
         children = 'has' if abbrev.has_children else 'no'
         tag_name = dwarf.TagEncoding(abbrev.tag).name
         print(f'   {abbrev.code}      {tag_name}    [{children} children]')
-        for attr_id, form_id in abbrev.attributes:
-            attr_name = dwarf.AttributeEncoding(attr_id).name if attr_id else f'DW_AT value: {attr_id}'
-            attr_form = dwarf.FormEncoding(form_id).name if form_id else f'DW_FORM value: {form_id}'
+        for attr in abbrev.attributes:
+            attr_name = (dwarf.AttributeEncoding(attr.attribute_id).name if attr.attribute_id
+                         else f'DW_AT value: {attr.attribute_id}')
+            attr_form = dwarf.FormEncoding(attr.form_id).name if attr.form_id else f'DW_FORM value: {attr.form_id}'
             print(f'    {attr_name:18} {attr_form}')
         for child in abbrev.children:
             print_abbrev(child)

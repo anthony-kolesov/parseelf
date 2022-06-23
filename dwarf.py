@@ -1878,6 +1878,95 @@ class FormEncoding(Enum):
     DW_FORM_exprloc = (0x18, StreamReader.block)
     DW_FORM_flag_present = (0x19, lambda _: 1)
     DW_FORM_ref_sig8 = (0x20, StreamReader.uint8)
+
+
+@dataclasses.dataclass(frozen=True)
+class DieAttributeValue:
+    """A representation of a single attribute value in DIE."""
+    attribute: AttributeEncoding
+    """An attribute taken from .debug_abbrev section."""
+    form: FormEncoding
+    """The form of the attribute value."""
+    value: int | bytes
+    """The attribute value."""
+    offset: int
+    """An offset of the value in the .debug_info section."""
+
+    @staticmethod
+    def read(
+        sr: StreamReader,
+        attributes: Sequence['AbbreviationAttribute'],
+    ) -> Iterator['DieAttributeValue']:
+        for attr in attributes:
+            if attr.attribute_id == 0 and attr.form_id == 0:
+                break
+            form = FormEncoding(attr.form_id)
+            attr_offset = sr.current_position
+            attr_value = form.reader(sr)
+            yield DieAttributeValue(
+                AttributeEncoding(attr.attribute_id),
+                form,
+                attr_value,
+                attr_offset,
+            )
+
+
+@dataclasses.dataclass(frozen=True)
+class DebugInformationEntry:
+    """An representation of the DIE from .debug_info section.
+
+    In general DIEs can be nested - an DIE could have levels of multiple child
+    DIEs. Currently this class doesn't represent this relationship - the DIEs
+    are represented as a sequence, not as a tree. To reconstruct hierarchy,
+    check the `level` field, when it increases by one, then this DIE is the
+    child of the previous one."""
+    abbreviation_number: int
+    """A number of the abbreviation in the sequence defined in .debug_abbrev."""
+    tag_id: int
+    """An id of the DIE tag."""
+    attributes: Sequence[DieAttributeValue]
+    """A sequence of attributes in the DIE."""
+    offset: int
+    """An offset of the DIE in the .debug_info section."""
+    level: int
+    """A level of nesting of this DIE."""
+
+    @staticmethod
+    def read(
+        sr: StreamReader,
+        abbreviations: Sequence['AbbreviationDeclaration'],
+    ) -> Iterator['DebugInformationEntry']:
+        level = 0
+        while not sr.at_eof:
+            die_offset = sr.current_position
+            abbrev_number = sr.uleb128()
+            if abbrev_number == 0 and level > 0:
+                # A null entry indicates and end of a children-sequence.
+                # After yielding it, reduce level by one.
+                yield DebugInformationEntry(
+                    abbrev_number,
+                    0,
+                    tuple(),
+                    die_offset,
+                    level,
+                )
+                level -= 1
+                continue
+            if abbrev_number > len(abbreviations):
+                break
+            abbreviation = abbreviations[abbrev_number - 1]
+            attributes = tuple(DieAttributeValue.read(sr, abbreviation.attributes))
+            yield DebugInformationEntry(
+                abbrev_number,
+                abbreviation.tag,
+                attributes,
+                die_offset,
+                level,
+            )
+            if abbreviation.has_children:
+                level += 1
+
+
 @dataclasses.dataclass(frozen=True)
 class CompilationUnit:
     offset: int
@@ -1886,9 +1975,21 @@ class CompilationUnit:
     version: int
     debug_abbrev_offset: int
     address_size: int
+    die_entries: Sequence[DebugInformationEntry]
 
     @staticmethod
-    def read(sr: StreamReader) -> Iterator['CompilationUnit']:
+    def read(
+        sr: StreamReader,
+        debug_abbrev_sr: StreamReader,
+    ) -> Iterator['CompilationUnit']:
+        """Read compulation unit entries from a .debug_info section.
+
+        CU's are in .debug_info, and contain a reference into .debug_abbrev
+        section, which describes the structure of the individual DIEs - which
+        attributes are in them.
+
+        :param sr: The stream reader for the .debug_info section.
+        :param debug_abbrev_sr: The stream reader for the .debug_abbrev section."""
         while not sr.at_eof:
             offset = sr.current_position
             length = sr.length()
@@ -1900,6 +2001,20 @@ class CompilationUnit:
             debug_abbrev_offset = sr.offset()
             address_size = sr.uint1()
 
+            def flatten(a: AbbreviationDeclaration) -> Iterator[AbbreviationDeclaration]:
+                """Flatten a tree of abbreviation declarations into a single-level iterator."""
+                yield a
+                for c in a.children:
+                    yield from flatten(c)
+
+            # Get abbreviations for this CU.
+            debug_abbrev_sr.set_abs_position(debug_abbrev_offset)
+            cu_abbrev = next(AbbreviationDeclaration.read(debug_abbrev_sr, True))
+            # Flatten abbreviations.
+            abbreviations = tuple(flatten(cu_abbrev))
+
+            die_entries: list[DebugInformationEntry] = list(DebugInformationEntry.read(sr, abbreviations))
+
             sr.set_abs_position(cu_offset + length)
             yield CompilationUnit(
                 offset,
@@ -1908,30 +2023,40 @@ class CompilationUnit:
                 version,
                 debug_abbrev_offset,
                 address_size,
+                die_entries,
             )
 
 
 #
-# .debug_abbr
+# .debug_abbrev
 #
+@dataclasses.dataclass(frozen=True)
+class AbbreviationAttribute:
+    """A representation of the attribute as it is in the .debug_abbrev.
+
+    Can contain zero values, as those can be encountered in the raw data."""
+    attribute_id: int
+    form_id: int
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterator['AbbreviationAttribute']:
+        while not sr.at_eof:
+            name = sr.uleb128()
+            form = sr.uleb128()
+            yield AbbreviationAttribute(name, form)
+            if name == 0 and form == 0:
+                return
+
+
 @dataclasses.dataclass(frozen=True)
 class AbbreviationDeclaration:
     code: int
     tag: int
     has_children: bool
-    attributes: Sequence[tuple[int, int]]
+    attributes: Sequence[AbbreviationAttribute]
     children: Sequence['AbbreviationDeclaration']
     offset: int
     level: int
-
-    @staticmethod
-    def read_attributes(sr: StreamReader) -> Iterator[tuple[int, int]]:
-        while not sr.at_eof:
-            name = sr.uleb128()
-            form = sr.uleb128()
-            yield name, form
-            if name == 0 and form == 0:
-                return
 
     @staticmethod
     def read(sr: StreamReader, level: int = 0) -> Iterator['AbbreviationDeclaration']:
@@ -1943,7 +2068,7 @@ class AbbreviationDeclaration:
                 return
             tag = sr.uleb128()
             has_children = bool(sr.uint1())
-            attributes = tuple(AbbreviationDeclaration.read_attributes(sr))
+            attributes = tuple(AbbreviationAttribute.read(sr))
 
             if has_children:
                 children = tuple(AbbreviationDeclaration.read(sr, level + 1))
