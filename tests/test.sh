@@ -25,6 +25,7 @@ do
     $PYTHON $parse --dwarf=abbrev $file &> dwarf-abbrev.${f}.txt
     $PYTHON $parse --dwarf=frames $file &> dwarf-frames.${f}.txt
     $PYTHON $parse --dwarf=frames-interp $file &> dwarf-frames-interp.${f}.txt
+    $PYTHON $parse --dwarf=str $file &> dwarf-str.${f}.txt
     cd - >/dev/null
 done
 
@@ -33,7 +34,7 @@ do
     # Not testing --notes because GNU_PROPERTY_TYPE_0 is currently not supported.
     for t in file-header program-headers section-headers symbols relocs dynamic \
         version-info strings dwarf-frames dwarf-frames-interp dwarf-rawline \
-        dwarf-decodedline dwarf-abbrev dwarf-info
+        dwarf-decodedline dwarf-abbrev dwarf-info dwarf-str
     do
         diff --strip-trailing-cr -uN ref/$f/$t.$f.txt $f/$t.$f.txt
     done

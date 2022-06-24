@@ -86,8 +86,9 @@ def create_parser() -> ArgumentParser:
             'decodedline',
             'info',
             'abbrev',
-            'frames-interp',
             'frames',
+            'frames-interp',
+            'str',
         ),
         action='append',
     )
@@ -551,6 +552,19 @@ def string_dump(
         print()
 
 
+def _dump_hex(
+    buffer: bytes
+) -> None:
+    for start in range(0, len(buffer), 16):
+        h1 = buffer[start:start+4].hex()
+        h2 = buffer[start+4:start+8].hex()
+        h3 = buffer[start+8:start+12].hex()
+        h4 = buffer[start+12:start+16].hex()
+        s = buffer[start:start+16].decode('ascii')
+        s = s.replace('\0', '.')
+        print(f'  {start:#010x} {h1:<8} {h2:<8} {h3:<8} {h4:<8} {s}')
+
+
 def print_dwarf_rawline(
     elf_obj: elf.Elf,
 ) -> None:
@@ -938,6 +952,19 @@ def print_dwarf_frames_interp(
     print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
 
 
+def print_dwarf_str(
+    elf_obj: elf.Elf,
+) -> None:
+    debug_str = next((s for s in elf_obj.sections if s.name == '.debug_str'), None)
+    if debug_str is None:
+        print()
+        return
+    print(f'\nContents of the {debug_str.name} section:\n')
+    debug_str_content = elf_obj.section_content(debug_str.number)
+    _dump_hex(debug_str_content)
+    print()
+
+
 if __name__ == "__main__":
     parser = create_parser()
     args = cast(Arguments, parser.parse_args())
@@ -977,5 +1004,7 @@ if __name__ == "__main__":
             print_dwarf_frames_interp(elf_obj)
         if 'frames' in args.dwarf:
             print_dwarf_frames(elf_obj)
+        if 'str' in args.dwarf:
+            print_dwarf_str(elf_obj)
 
     elf_file.close()
