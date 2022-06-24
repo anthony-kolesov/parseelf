@@ -21,6 +21,7 @@ do
     $READELF -W --dynamic $file &> dynamic.${f}.txt
     $READELF -W --version-info $file &> version-info.${f}.txt
     $READELF -W --string-dump=.dynstr --string-dump=.strtab --string-dump=.shstrtab $file &> strings.${f}.txt
+    $READELF -W --hex-dump=.text --hex-dump=.dynstr --hex-dump=.strtab --hex-dump=.shstrtab $file &> hex.${f}.txt
     $OBJDUMP --dwarf $file &> dwarf.${f}.txt
     # Strip lines that I don't want to generate in parse_elf.py
     $OBJDUMP --dwarf=rawline $file |& tail -n+3 > dwarf-rawline.${f}.txt
@@ -38,7 +39,7 @@ do
     # $OBJDUMP --dwarf=pubtypes $file |& tail -n+3 > dwarf-pubtypes.${f}.txt
     # $OBJDUMP --dwarf=gdb_index $file |& tail -n+3 > dwarf-gdb_index.${f}.txt
     # $OBJDUMP --dwarf=trace_info $file |& tail -n+3 > dwarf-trace_info.${f}.txt
-    # $OBJDUMP --dwarf=trace_abbrev $file |& tail -n+3 > dwarf- trace_abbrev.${f}.txt
+    # $OBJDUMP --dwarf=trace_abbrev $file |& tail -n+3 > dwarf-trace_abbrev.${f}.txt
     # $OBJDUMP --dwarf=trace_aranges $file |& tail -n+3 > dwarf-trace_aranges.${f}.txt
     # $OBJDUMP --dwarf=addr $file |& tail -n+3 > dwarf-addr.${f}.txt
     # $OBJDUMP --dwarf=cu_index $file |& tail -n+3 > dwarf-cu_index.${f}.txt

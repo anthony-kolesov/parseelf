@@ -24,6 +24,7 @@ class Arguments:
     dynamic: bool
     version_info: bool
     string_dump: list[str]
+    hex_dump: list[str]
     dwarf: list[str]
 
 
@@ -76,6 +77,12 @@ def create_parser() -> ArgumentParser:
         '--string-dump', '-p',
         metavar='NUMBER|NAME',
         help='Dump the contents of section <number|name> as strings',
+        action='append',
+    )
+    parser.add_argument(
+        '--hex-dump', '-x',
+        metavar='NUMBER|NAME',
+        help='Dump the contents of section <number|name> as bytes',
         action='append',
     )
     parser.add_argument(
@@ -531,10 +538,7 @@ def string_dump(
 
     This function doesn't try to test whether the section is actually a string
     table or not, except that it checks the first byte - it should be 0
-    according to SystemV ABI (http://www.sco.com/developers/gabi/latest/ch4.strtab.html).
-
-    :param sections_to_dump: Names of sections to dump.
-    :param sections: Mapping from section names to headers."""
+    according to SystemV ABI (http://www.sco.com/developers/gabi/latest/ch4.strtab.html)."""
     # For compatibility with readelf first print warnings for non-existing sections.
     existing_section_numbers = []
     for section_num_or_name in sections_to_dump:
@@ -554,16 +558,45 @@ def string_dump(
 
 
 def _dump_hex(
-    buffer: bytes
+    buffer: bytes,
+    base_offset: int = 0,
 ) -> None:
+    translation: list[int] = [
+        (x if (x >= 0x20 and x <= 0x7e) else b'.'[0]) for x in range(256)
+    ]
     for start in range(0, len(buffer), 16):
         h1 = buffer[start:start+4].hex()
         h2 = buffer[start+4:start+8].hex()
         h3 = buffer[start+8:start+12].hex()
         h4 = buffer[start+12:start+16].hex()
-        s = buffer[start:start+16].decode('ascii')
-        s = s.replace('\0', '.')
-        print(f'  {start:#010x} {h1:<8} {h2:<8} {h3:<8} {h4:<8} {s}')
+        # Hide non-printable characters.
+        translated_buffer = buffer[start:start+16].translate(bytes(translation))
+        s = translated_buffer.decode('ascii').replace('\0', '.')
+        print(f'  {base_offset + start:#010x} {h1:<8} {h2:<8} {h3:<8} {h4:<8} {s}')
+
+
+def hex_dump(
+    sections_to_dump: Iterable[str],
+    elf_obj: elf.Elf,
+) -> None:
+    """Dump the content of the specified sections as bytes."""
+    # For compatibility with readelf first print warnings for non-existing sections.
+    existing_section_numbers = []
+    for section_num_or_name in sections_to_dump:
+        if (not section_num_or_name.isnumeric()
+           and section_num_or_name not in elf_obj.section_names):
+            print(f"readelf: Warning: Section '{section_num_or_name}' was not dumped because it does not exist!")
+        else:
+            existing_section_numbers.append(elf_obj.section_number(section_num_or_name))
+
+    for section_num in range(elf_obj.file_header.section_header_entries):
+        if section_num not in existing_section_numbers:
+            continue
+        section_name = elf_obj.section_names[section_num]
+        print(f"\nHex dump of section '{section_name}':")
+        section_header = elf_obj.section_headers[section_num]
+        _dump_hex(elf_obj.section_content(section_num), section_header.address)
+        print()
 
 
 def print_dwarf_rawline(
@@ -1024,6 +1057,8 @@ if __name__ == "__main__":
         print_version_info(elf_obj)
     if args.string_dump:
         string_dump(args.string_dump, elf_obj)
+    if args.hex_dump:
+        hex_dump(args.hex_dump, elf_obj)
     if args.dwarf:
         if 'rawline' in args.dwarf:
             print_dwarf_rawline(elf_obj)
