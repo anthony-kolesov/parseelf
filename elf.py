@@ -912,13 +912,13 @@ class StringTable(collections.abc.Iterable[tuple[int, str]]):
     ) -> None:
         stream.seek(string_table_section.offset)
         self._data = stream.read(string_table_section.size)
-        assert self._data and self._data[0] == 0
+        assert self._data
 
     def get(self, offset: int) -> str:
-        """Get a string from the table starting at the specified offset."""
-        if offset == 0:
-            return ''
+        """Get a string from the table starting at the specified offset.
 
+        Regular string sections always start with a '0' code, but .debug_str
+        doesn't follow the same rule, hence we can't quick exit for offset == 0."""
         end = self._data.find(b'\x00', offset)
         return self._data[offset:end].decode('ascii')
 
