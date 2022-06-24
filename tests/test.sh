@@ -33,7 +33,7 @@ do
     # Not testing --notes because GNU_PROPERTY_TYPE_0 is currently not supported.
     for t in file-header program-headers section-headers symbols relocs dynamic \
         version-info strings dwarf-frames dwarf-frames-interp dwarf-rawline \
-        dwarf-decodedline dwarf-abbrev
+        dwarf-decodedline dwarf-abbrev dwarf-info
     do
         diff --strip-trailing-cr -uN ref/$f/$t.$f.txt $f/$t.$f.txt
     done

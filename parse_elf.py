@@ -7,7 +7,7 @@ from argparse import ArgumentParser
 from io import BytesIO
 from pathlib import Path
 import sys
-from typing import cast, Iterable, Sequence
+from typing import Any, cast, Iterable, Sequence
 
 import dwarf
 import elf
@@ -644,6 +644,100 @@ def print_dwarf_decodedline(
         print()
 
 
+def _format_die_attribute_value(
+    attribute: dwarf.AttributeEncoding,
+    form: dwarf.FormEncoding,
+    value: int | bytes,
+    cu: dwarf.CompilationUnit,
+    debug_strings: elf.StringTable,
+) -> str:
+    def attribute_type_formatting(value: int) -> str:
+        return f'{value}\t({dwarf.AttributeTypeEncoding(value).human_name})'
+
+    def language_type_formatting(value: int) -> str:
+        return f'{value}\t({dwarf.LanguageEncoding(value).human_name})'
+
+    attr_formatting = {
+        dwarf.AttributeEncoding.DW_AT_high_pc: lambda a: format(a, '#x'),
+        dwarf.AttributeEncoding.DW_AT_language: language_type_formatting,
+        dwarf.AttributeEncoding.DW_AT_encoding: attribute_type_formatting,
+    }
+
+    def strp_formatting(value: int) -> str:
+        return f'(indirect string, offset: {value:#x}): {debug_strings[value]}'
+
+    def explr_formatting(b: bytes) -> str:
+        init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(b))
+        fmt = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
+        s = dwarf.ExpressionOperation.objdump_format_seq(fmt, dwarf.ExpressionOperation.read(init_instr_sr))
+        return f'{len(b)} byte block: {b.hex()} \t({s})'
+
+    def indirect_formatting(form_id: int, value: int | bytes) -> str:
+        return ' '.join((
+            dwarf.FormEncoding(form_id).name,
+            _format_die_attribute_value(
+                attribute,
+                dwarf.FormEncoding(form_id),
+                value,
+                cu,
+                debug_strings,
+            )
+        ))
+
+    # Must explicitly identify type as Any, to avoid mypy errors when calling
+    # a function returned from this dictionary.
+    form_formatting: dict[dwarf.FormEncoding, Any] = {
+        dwarf.FormEncoding.DW_FORM_addr: lambda a: format(a, '#x'),
+        dwarf.FormEncoding.DW_FORM_block2: str,
+        dwarf.FormEncoding.DW_FORM_block4: str,
+        dwarf.FormEncoding.DW_FORM_data2: str,
+        dwarf.FormEncoding.DW_FORM_data4: str,
+        dwarf.FormEncoding.DW_FORM_data8: str,
+        dwarf.FormEncoding.DW_FORM_string: str,
+        dwarf.FormEncoding.DW_FORM_block: str,
+        dwarf.FormEncoding.DW_FORM_block1: str,
+        dwarf.FormEncoding.DW_FORM_data1: str,
+        dwarf.FormEncoding.DW_FORM_flag: str,
+        dwarf.FormEncoding.DW_FORM_sdata: lambda a: format(a, '#x'),
+        dwarf.FormEncoding.DW_FORM_strp: strp_formatting,
+        dwarf.FormEncoding.DW_FORM_udata: lambda a: format(a, '#x'),
+        dwarf.FormEncoding.DW_FORM_ref_addr: lambda a: f'<{a:#x}>',
+        dwarf.FormEncoding.DW_FORM_ref1: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_ref2: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_ref4: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_ref8: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_ref_udata: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_sec_offset: lambda a: format(a, '#x'),
+        dwarf.FormEncoding.DW_FORM_exprloc: explr_formatting,
+        dwarf.FormEncoding.DW_FORM_flag_present: str,
+        dwarf.FormEncoding.DW_FORM_ref_sig8: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_indirect: lambda a: indirect_formatting(a[0], a[1]),
+    }
+
+    # In most cases the printing format for a value is based on it's
+    # form, but for some particular attributes the format is
+    # different from what makes sense for this form, hence
+    # attribute-specific formatters have higher priority over
+    # form-specific.
+    # attr_value_int = cast(int, attr.value)
+    if attribute in attr_formatting:
+        return attr_formatting[attribute](cast(int, value))
+    else:
+        return form_formatting.get(form, str)(value)
+
+
+def _print_die_attribute(
+    attr: dwarf.DieAttributeValue,
+    cu: dwarf.CompilationUnit,
+    debug_strings: elf.StringTable,
+) -> None:
+    print(
+        f'    <{attr.offset:x}>  ',
+        f'{attr.attribute.name:18}:',
+        _format_die_attribute_value(attr.attribute, attr.form, attr.value, cu, debug_strings),
+    )
+
+
 def print_dwarf_info(
     elf_obj: elf.Elf,
 ) -> None:
@@ -651,6 +745,17 @@ def print_dwarf_info(
     if debug_info is None:
         print()
         return
+
+    debug_str_section = next((s for s in elf_obj.sections if s.name == '.debug_str'), None)
+    assert debug_str_section is not None
+    debug_strings = elf_obj.strings(debug_str_section.number)
+
+    # Read abbreviation data.
+    debug_abbrev = next((s for s in elf_obj.sections if s.name == '.debug_abbrev'), None)
+    assert debug_abbrev is not None
+    debug_abbrev_stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
+    debug_abbrev_sr = dwarf.StreamReader(elf_obj.data_format, debug_abbrev_stream)
+
     print('\nContents of the .debug_info section:\n')
     stream = BytesIO(elf_obj.section_content(debug_info.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
@@ -660,6 +765,14 @@ def print_dwarf_info(
         print(f'   Version:       {cu.version}')
         print(f'   Abbrev Offset: {cu.debug_abbrev_offset:#x}')
         print(f'   Pointer Size:  {cu.address_size}')
+        for die in cu.die_entries:
+            if die.abbreviation_number:
+                abbrev_name = f' ({dwarf.TagEncoding(die.tag_id).name})'
+            else:
+                abbrev_name = ''
+            print(f' <{die.level}><{die.offset:x}>: Abbrev Number: {die.abbreviation_number}{abbrev_name}')
+            for attr in die.attributes:
+                _print_die_attribute(attr, cu, debug_strings)
     print()
 
 
