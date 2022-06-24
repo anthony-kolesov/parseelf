@@ -86,6 +86,7 @@ def create_parser() -> ArgumentParser:
             'decodedline',
             'info',
             'abbrev',
+            'aranges',
             'frames',
             'frames-interp',
             'str',
@@ -819,6 +820,38 @@ def print_dwarf_abbrev(
     print()
 
 
+def print_dwarf_aranges(
+    elf_obj: elf.Elf,
+) -> None:
+    debug_aranges = next((s for s in elf_obj.sections if s.name == '.debug_aranges'), None)
+    if debug_aranges is None:
+        print()
+        return
+    print(f'\nContents of the {debug_aranges.name} section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_aranges.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    left_column_format = '<25'
+    for arange in dwarf.ArangeEntry.read(sr):
+        print(' ', format('Length:', left_column_format), arange.length)
+        print(' ', format('Version:', left_column_format), arange.version)
+        print(
+            ' ',
+            format('Offset into .debug_info:', left_column_format),
+            format(arange.debug_info_offset, '#x'),
+        )
+        print(' ', format('Pointer Size:', left_column_format), arange.address_size)
+        print(' ', format('Segment Size:', left_column_format), arange.segment_selector_size)
+        print(f'\n    {"Address":{elf_obj.elf_class.address_string_width}}   Length')
+        for descriptor in arange.descriptors:
+            print(
+                '   ',
+                format(descriptor[0], elf_obj.elf_class.address_format),
+                format(descriptor[1], elf_obj.elf_class.address_format),
+                '',
+            )
+    print()
+
+
 def _format_address_range(start: int, end: int, bits: elf.ElfClass) -> str:
     """Format an address range as {start}..{end}"""
     return f'{start:{bits.address_format}}..{end:{bits.address_format}}'
@@ -1000,6 +1033,8 @@ if __name__ == "__main__":
             print_dwarf_info(elf_obj)
         if 'abbrev' in args.dwarf:
             print_dwarf_abbrev(elf_obj)
+        if 'aranges' in args.dwarf:
+            print_dwarf_aranges(elf_obj)
         if 'frames-interp' in args.dwarf:
             print_dwarf_frames_interp(elf_obj)
         if 'frames' in args.dwarf:

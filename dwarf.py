@@ -31,6 +31,7 @@ __all__ = [
     'LineNumberProgram',
     'LineNumberStateRow',
     'LineNumberStateMachine',
+    'ArangeEntry',
 ]
 
 import builtins
@@ -56,6 +57,14 @@ class StreamReader:
     def bytes(self, size: int) -> bytes:
         """Read the specified amount of bytes from the stream."""
         return self.__stream.read(size)
+
+    def uint(self, sz: int) -> int:
+        match sz:
+            case 1: return self.uint1()
+            case 2: return self.uint2()
+            case 4: return self.uint4()
+            case 8: return self.uint8()
+            case _: raise NotImplementedError('Unsupported integer size.')
 
     def uint1(self) -> int:
         return self.__df.read_uint1(self.__stream.read(1))
@@ -2084,3 +2093,50 @@ class AbbreviationDeclaration:
                 offset,
                 level,
             )
+
+
+#
+# .debug_aranges
+#
+@dataclasses.dataclass(frozen=True)
+class ArangeEntry:
+    length: int
+    version: int
+    debug_info_offset: int
+    address_size: int
+    segment_selector_size: int
+    descriptors: Sequence[tuple[int, int]]
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterator['ArangeEntry']:
+        while not sr.at_eof:
+            length = sr.length()
+            end_pos = sr.current_position + length
+            version = sr.uint2()
+            debug_info_offset = sr.offset()
+            address_size = sr.uint1()
+            segment_selector_size = sr.uint1()
+            assert segment_selector_size == 0, "Non-zero segment size is not supported."
+
+            # Must pad to an alignment boundary that is twice the address size.
+            # This aligns with output from gcc/binutils and how objdump treats
+            # input data, but I can't fully understand where this requirement
+            # is in the specification.
+            sr.set_abs_position(sr.current_position, address_size * 2)
+            descriptors = list()
+            while sr.current_position < end_pos:
+                descr_address = sr.uint(address_size)
+                descr_length = sr.uint(address_size)
+                descriptors.append((descr_address, descr_length))
+                if descr_address == 0 and descr_length == 0:
+                    break
+
+            yield ArangeEntry(
+                length,
+                version,
+                debug_info_offset,
+                address_size,
+                segment_selector_size,
+                descriptors,
+            )
+            sr.set_abs_position(end_pos)

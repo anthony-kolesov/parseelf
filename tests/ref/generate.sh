@@ -28,7 +28,7 @@ do
     $OBJDUMP --dwarf=info $file |& tail -n+3 > dwarf-info.${f}.txt
     $OBJDUMP --dwarf=abbrev $file |& tail -n+3 > dwarf-abbrev.${f}.txt
     # $OBJDUMP --dwarf=pubnames $file |& tail -n+3 > dwarf-pubnames.${f}.txt
-    # $OBJDUMP --dwarf=aranges $file |& tail -n+3 > dwarf-aranges.${f}.txt
+    $OBJDUMP --dwarf=aranges $file |& tail -n+3 > dwarf-aranges.${f}.txt
     # $OBJDUMP --dwarf=macro $file |& tail -n+3 > dwarf-macro.${f}.txt
     $OBJDUMP --dwarf=frames $file |& tail -n+3 > dwarf-frames.${f}.txt
     $OBJDUMP --dwarf=frames-interp $file |& tail -n+3 > dwarf-frames-interp.${f}.txt
