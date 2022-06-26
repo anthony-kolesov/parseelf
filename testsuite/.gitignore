@@ -1,0 +1,7 @@
+*.dump.txt
+*.gen.txt
+*.ref.txt
+*.x
+
+coverage.bin
+coverage-result
