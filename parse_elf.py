@@ -152,13 +152,6 @@ def print_file_header(
 def print_program_headers(
     elf_obj: elf.Elf,
 ) -> None:
-    obj_type_description = (f' ({elf_header.objectType.description})' if elf_header.objectType.description else '')
-    print(f'\nElf file type is {elf_header.objectType.name}{obj_type_description}')
-    print(f'Entry point {elf_header.entry:#x}')
-    print(
-        f'There are {elf_header.program_header_entries} program headers, '
-        f'starting at offset {elf_header.program_header_offset}'
-    )
     print("\nProgram Headers:")
     addrw = elf_header.elf_class.address_string_width + 2
     sizew = 8 if elf_header.elf_class == elf.ElfClass.ELF64 else 7
@@ -231,8 +224,6 @@ def print_program_headers(
 def print_section_headers(
     elf_obj: elf.Elf,
 ) -> None:
-    print(f'There are {elf_obj.file_header.section_header_entries} section headers, '
-          f'starting at offset {elf_header.section_header_offset:#x}:')
     print('\nSection Headers:')
     address_title = format('Addr', '8') if elf_header.elf_class == elf.ElfClass.ELF32 else format('Address', '16')
     print(f'  [Nr] Name              Type            {address_title} Off    Size   ES Flg Lk Inf Al')
@@ -264,7 +255,7 @@ def print_symbols(
         if section.type not in (elf.SectionType.SYMTAB, elf.SectionType.DYNSYM):
             continue
         value_width = elf_obj.elf_class.address_string_width
-        print(f"\nSymbol table '{section_name}' contains {section.size // section.entry_size} entries:")
+        print(f"\nSymbol table '{section_name}' contains {entry_word(section.size // section.entry_size)}:")
         print(f'   Num: {"   Value":{value_width}}  Size Type    Bind   Vis      Ndx Name')
         for symbol_num, symbol_name, symbol, vna in elf_obj.symbols(section_num):
             complete_name = symbol_name
@@ -300,13 +291,17 @@ def print_notes(
         note_type = df.read_uint4(stream.read(4))
         name = df.parse_cstring(stream.read(elf.align_up(namesz, 4)))
 
-        def print_section_info(type_name: str, details: str = '') -> None:
+        def print_section_info(type_name: str, details: str = '', suffix: str = '') -> None:
             print(f'\nDisplaying notes found in: {section.name}')
             print('  Owner                Data size \tDescription')
             d = type_name
             if details:
                 d = f'{d} ({details})'
-            print(f'  {name:<20} {descsz:#010x}\t{d}')
+            print(f'  {name:<20} {descsz:#010x}\t{d}', end='')
+            if suffix:
+                print(f'\t{suffix}')
+            else:
+                print()
 
         if name == 'GNU':
             if note_type == NT_GNU_ABI_TAG:
@@ -328,9 +323,12 @@ def print_notes(
                 subminor = df.read_uint4(stream.read(4))
                 print(f'    OS: {os}, ABI: {major}.{minor}.{subminor}')
             elif note_type == NT_GNU_BUILD_ID:
-                print_section_info('NT_GNU_BUILD_ID', 'unique build ID bitstring')
                 build_id = stream.read(descsz)
-                print(f'    Build ID: {build_id.hex()}')
+                print_section_info(
+                    'NT_GNU_BUILD_ID',
+                    'unique build ID bitstring',
+                    f'    Build ID: {build_id.hex()}',
+                )
             # Would like to support NT_GNU_PROPERTY_TYPE_0 used by GCC, but
             # for now it looks too complicated to be worth it.
 
@@ -338,10 +336,12 @@ def print_notes(
 def print_relocations(
     elf_obj: elf.Elf,
 ) -> None:
+    found = False
     for section_num, section_name, section in elf_obj.sections:
         if section.type not in (elf.SectionType.REL, elf.SectionType.RELA):
             continue
 
+        found = True
         relocs_count = section.size // section.entry_size
         print(f"\nRelocation section '{section_name}' at offset {section.offset:#x} "
               f"contains {entry_word(relocs_count)}:")
@@ -380,6 +380,8 @@ def print_relocations(
                     symbol_value = ''
                 symbol_w_addend = f'   {getattr(r, "addend", 0):x}' if section.type == elf.SectionType.RELA else ''
             print(symbol_value + symbol_w_addend)
+    if not found:
+        print('\nThere are no relocations in this file.')
 
 
 def print_dynamic_info(elf_obj: elf.Elf) -> None:
@@ -524,6 +526,9 @@ def print_version_info(
     elf_obj: elf.Elf,
 ) -> None:
     verneed_entries = tuple(elf_obj.version_needed)
+    if len(verneed_entries) == 0:
+        print('\nNo version information found in this file.')
+        return
     verneed_section = next(elf_obj.sections_of_type(elf.SectionType.VERNEED))
     versym_section = next(elf_obj.sections_of_type(elf.SectionType.VERSYM))
     _print_versym_info(elf_obj, versym_section)
@@ -1036,24 +1041,40 @@ if __name__ == "__main__":
     elf_file = open(args.input, 'rb')
     elf_header = elf.ElfHeader.read_elf_header(elf_file)
     elf_obj = elf.Elf(elf_file)
+
     if args.file_header:
         elf_file.seek(0)
         print_file_header(elf_obj.file_header, elf_file.read(16))
-
-    if args.program_headers:
-        print_program_headers(elf_obj)
     if args.section_headers:
+        if not args.file_header:
+            print(
+                f'There are {elf_obj.file_header.section_header_entries} section headers, '
+                f'starting at offset {elf_header.section_header_offset:#x}:'
+            )
         print_section_headers(elf_obj)
-    if args.symbols:
-        print_symbols(elf_obj)
-    if args.notes:
-        print_notes(elf_obj)
-    if args.relocations:
-        print_relocations(elf_obj)
+    if args.program_headers:
+        if not args.file_header:
+            if elf_header.objectType.description:
+                obj_type_description = f' ({elf_header.objectType.description})'
+            else:
+                obj_type_description = ''
+            print(f'\nElf file type is {elf_header.objectType.name}{obj_type_description}')
+            print(f'Entry point {elf_header.entry:#x}')
+            print(
+                f'There are {elf_header.program_header_entries} program headers, '
+                f'starting at offset {elf_header.program_header_offset}'
+            )
+        print_program_headers(elf_obj)
     if args.dynamic:
         print_dynamic_info(elf_obj)
+    if args.relocations:
+        print_relocations(elf_obj)
+    if args.symbols:
+        print_symbols(elf_obj)
     if args.version_info:
         print_version_info(elf_obj)
+    if args.notes:
+        print_notes(elf_obj)
     if args.string_dump:
         string_dump(args.string_dump, elf_obj)
     if args.hex_dump:

@@ -10,7 +10,8 @@ TESTS := eh_frame
 all: $(addsuffix .ref.txt,$(TESTS))
 
 %.ref.txt: %.x
-	$(OBJDUMP) --dwarf $< | tail -n+3 > $@
+	$(READELF) -W -h -l -S -s -r -d -V -n $< > $@
+	$(OBJDUMP) --dwarf $< | tail -n+3 >> $@
 	$(OBJDUMP) --dwarf=frames-interp,decodedline $< | tail -n+3 >> $@
 
 %.x: %.s

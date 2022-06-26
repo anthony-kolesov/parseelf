@@ -1599,7 +1599,9 @@ class Elf:
         # optionally followed by an array of Elfxx_Vernaux structures.
         # Although formally there is no reason why those would be arrays:
         # presence of `next` field allows this to be effectively a linked list.
-        section = next(self.sections_of_type(SectionType.VERNEED))
+        section = next(self.sections_of_type(SectionType.VERNEED), None)
+        if section is None:
+            return  # Section not found.
         data = self.section_content(section.number)
         names = self.strings(section.header.link)
 
