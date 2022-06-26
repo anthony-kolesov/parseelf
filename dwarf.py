@@ -41,7 +41,7 @@ import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
 from typing import BinaryIO, final, Iterable, Iterator, Mapping, \
-    MutableMapping, NamedTuple, Optional, Sequence, TextIO
+    MutableMapping, NamedTuple, Sequence, TextIO
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
 
@@ -777,28 +777,25 @@ class CieRecord:
     augmentation_data: bytes = b''
     augmentation_info: CieAugmentation = CieAugmentation()
 
+    @property
+    def is_zero_record(self) -> bool:
+        return self.size == 0
+
     @staticmethod
-    def read(sr: StreamReader) -> Optional['CieRecord']:
+    def read(
+        sr: StreamReader,
+        entry_offset: int,
+        length: int,
+        post_length_offset: int,
+    ) -> 'CieRecord':
+        """Read an CIE record from the .eh_frame.
+
+        :param sr: The stream reader to read from.
+        :param entry_offset: The offset of the CIE beggining.
+        :param length: The CIE size without the length field itself.
+        :param post_length_offset: The offset of the CIE pointer field."""
         # Note that this implements Linux .eh_frame structure, which is
         # slightly different from .debug_frame.
-        offset = sr.current_position
-
-        length = sr.uint4()
-        if length == 0:
-            # Null terminator CIE.
-            # Reset cursor, so offset of the null record can be evaluated.
-            sr.set_abs_position(offset)
-            return None
-        if length == 0xffffffff:
-            # Read extended length.
-            length = sr.uint8()
-
-        # Needed to read initial instructions field. Length fields are not
-        # included in the length count.
-        cie_start = sr.current_position
-        cie_id = sr.uint4()
-        assert cie_id == 0, "CIE record has non-zero ID field."
-
         version = sr.uint1()
         assert version == 1, "CIE record version is not 1."
 
@@ -823,11 +820,11 @@ class CieRecord:
 
         # Length of initial instructions field is defined as size of CIE minus
         # already read bytes.
-        bytes_read = sr.current_position - cie_start
+        bytes_read = sr.current_position - post_length_offset
         init_instr = sr.bytes(length - bytes_read)
 
         return CieRecord(
-            offset,
+            entry_offset,
             length,
             version,
             augmentation_str,
@@ -838,6 +835,10 @@ class CieRecord:
             augmentation_data,
             cie_augmentation,
         )
+
+    @staticmethod
+    def zero_record(offset: int) -> 'CieRecord':
+        return CieRecord(offset, 0, 0, '', 0, 0, 0, b'')
 
 
 @dataclasses.dataclass(frozen=True)
@@ -863,76 +864,55 @@ class FdeRecord:
     def read(
         sr: StreamReader,
         cie_records: Mapping[int, CieRecord],
-    ) -> Iterator['FdeRecord']:
-        """Read FDE records from the stream.
+        entry_offset: int,
+        length: int,
+        post_length_offset: int,
+        cie_ptr: int,
+    ) -> 'FdeRecord':
+        """Read an FDE record from the .eh_frame.
 
-        :param sr: stream reader.
-        :param cie_records: Mapping of section offsets to CIE records."""
-        # Note that this implements Linux .eh_frame structure, which is
-        # slightly different from .debug_frame.
-        fde_start = sr.set_abs_position(sr.current_position)
+        :param sr: The stream reader to read from.
+        :param cie_records: Mapping of section offsets to CIE records.
+        :param entry_offset: The offset of the CIE beggining.
+        :param length: The CIE size without the length field itself.
+        :param post_length_offset: The offset of the CIE pointer field."""
+        assert cie_ptr != 0, "FDE record can't have a zero CIE pointer field."
+        cie_abs_position = post_length_offset - cie_ptr
+        cie = cie_records[cie_abs_position]
+        assert cie_abs_position == cie.offset
+        # FDE always follows it's CIE so we don't have to try to search for
+        # CIE using the CIE pointer - we already have CIE.
 
-        # Length 0 means a null terminator FDE.
-        while (length := sr.uint4()) != 0:
-            if length == 0xffffffff:
-                # Read extended length.
-                length = sr.uint8()
+        pc_begin_offset = sr.current_position
+        # The following condition might (?) actually be false, but this
+        # code assumes that `R` augmentation is always present.
+        assert cie.augmentation_info.fde_pointer_encoding is not None
+        pc_begin = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
+        pc_range = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
 
-            id_offset = sr.current_position
-            cie_ptr = sr.uint4()
+        augmentation_sz = 0
+        augmentation_data = b''
+        if 'z' in cie.augmentation:
+            augmentation_sz = sr.uleb128()
+            if augmentation_sz > 0:
+                augmentation_data = sr.bytes(augmentation_sz)
 
-            if cie_ptr == 0:
-                # This is actually the next CIE, stop iterating.
-                break
+        # Remember that length doesn't count the `length` fields, hence
+        # substract id_offset, instead of fde_start.
+        bytes_read = sr.current_position - post_length_offset
+        instr = sr.bytes(length - bytes_read)
 
-            assert cie_ptr != 0, "FDE record has a zero CIE pointer field."
-            cie_abs_position = sr.current_position - 4 - cie_ptr
-            cie = cie_records[cie_abs_position]
-            assert cie_abs_position == cie.offset
-            # FDE always follows it's CIE so we don't have to try to search for
-            # CIE using the CIE pointer - we already have CIE.
-
-            pc_begin_offset = sr.current_position
-            # The following condition might (?) actually be false, but this
-            # code assumes that `R` augmentation is always present.
-            assert cie.augmentation_info.fde_pointer_encoding is not None
-            pc_begin = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
-            pc_range = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
-
-            augmentation_sz = 0
-            augmentation_data = b''
-            if 'z' in cie.augmentation:
-                augmentation_sz = sr.uleb128()
-                if augmentation_sz > 0:
-                    augmentation_data = sr.bytes(augmentation_sz)
-
-            # Remember that length doesn't count the `length` fields, hence
-            # substract id_offset, instead of fde_start.
-            bytes_read = sr.current_position - id_offset
-            instr = sr.bytes(length - bytes_read)
-
-            yield FdeRecord(
-                fde_start,
-                length,
-                cie_ptr,
-                cie,
-                pc_begin_offset,
-                pc_begin,
-                pc_range,
-                augmentation_data,
-                instr,
-            )
-
-            fde_start = sr.set_abs_position(id_offset + length)
-        # The loop can stop on two conditions:
-        # 1. Loop encountered the next CIE with a zero cie_ptr
-        # 2. Loop encountered the zero terminator.
-        # Loop terminator here is treated as a special type of CIE (similar to
-        # how it is treated in the spec), so either way this function restores
-        # cursor position to the before length field, so then the higher-order
-        # loop can safely read the CIE, whether it is a real CIE or null
-        # terminator.
-        sr.set_abs_position(fde_start)
+        return FdeRecord(
+            entry_offset,
+            length,
+            cie_ptr,
+            cie,
+            pc_begin_offset,
+            pc_begin,
+            pc_range,
+            augmentation_data,
+            instr,
+        )
 
     def abs_pc_begin(self, section_address: int = 0) -> int:
         """Evaluate real absolute value of PC begin based on augmentation.
@@ -952,10 +932,31 @@ def read_eh_frame(sr: StreamReader) -> Iterator[CieRecord | FdeRecord]:
     # Mapping of offsets to CIE records. Needed because FDE records can
     # reference any of the previous CIE records.
     cie_records: dict[int, CieRecord] = {}
-    while cie := CieRecord.read(sr):
-        cie_records[cie.offset] = cie
-        yield cie
-        yield from FdeRecord.read(sr, cie_records)
+
+    # Read length and cie_ptr fields and then call respective reader function:
+    # CIEs have a zero-value cie_ptr, while FDEs have a non-zero cie_ptr.
+    while not sr.at_eof:
+        entry_offset = sr.current_position
+        length = sr.length()
+
+        if length == 0:
+            # Null terminator CIE.
+            yield CieRecord.zero_record(entry_offset)
+            continue
+
+        post_length_offset = sr.current_position
+        cie_ptr = sr.uint4()
+
+        if cie_ptr == 0:
+            cie = CieRecord.read(sr, entry_offset, length, post_length_offset)
+            cie_records[entry_offset] = cie
+            yield cie
+            if cie.is_zero_record:
+                return
+        else:
+            yield FdeRecord.read(sr, cie_records, entry_offset, length, post_length_offset, cie_ptr)
+        # Set position just to ensure entry is skipped whether it was properly parsed or not.
+        sr.set_abs_position(post_length_offset + length)
 
 
 _dwarf_register_names = {

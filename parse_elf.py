@@ -960,13 +960,12 @@ def print_dwarf_frames(
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     for entry in dwarf.read_eh_frame(sr):
         if isinstance(entry, dwarf.CieRecord):
-            print_cie(entry, target_format)
+            if entry.is_zero_record:
+                print(f'\n{entry.offset:08x} ZERO terminator\n\n')
+            else:
+                print_cie(entry, target_format)
         else:
             print_fde(entry, target_format, eh_frame.header.address)
-
-    # CieRecord.read doesn't return null record explicitly, but it is present in
-    # the stream and objdump prints it.
-    print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
 
 
 def print_dwarf_frames_interp(
@@ -997,25 +996,25 @@ def print_dwarf_frames_interp(
     cie_cftables: dict[int, dwarf.CallFrameTable] = {}
     for entry in dwarf.read_eh_frame(sr):
         if isinstance(entry, dwarf.CieRecord):
-            print()
-            print(' '.join((
-                _dwarf_frame_cie_common(entry, target_format.data_format.bits),
-                f'"{entry.augmentation}"',
-                f'cf={entry.code_alignment_factor}',
-                f'df={entry.data_alignment_factor}',
-                f'ra={entry.return_address_register}',
-            )))
-            init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(entry.initial_instructions))
-            cie_cftable = dwarf.CallFrameTable(entry)
-            cie_cftable.do_instruction(*dwarf.CfaInstruction.read(init_instr_sr))
-            cie_cftable.objdump_print(target_format, sys.stdout)
-            cie_cftables[entry.offset] = cie_cftable
+            if entry.is_zero_record:
+                print(f'\n{entry.offset:08x} ZERO terminator\n')
+            else:
+                print()
+                print(' '.join((
+                    _dwarf_frame_cie_common(entry, target_format.data_format.bits),
+                    f'"{entry.augmentation}"',
+                    f'cf={entry.code_alignment_factor}',
+                    f'df={entry.data_alignment_factor}',
+                    f'ra={entry.return_address_register}',
+                )))
+                init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(entry.initial_instructions))
+                cie_cftable = dwarf.CallFrameTable(entry)
+                cie_cftable.do_instruction(*dwarf.CfaInstruction.read(init_instr_sr))
+                cie_cftable.objdump_print(target_format, sys.stdout)
+                cie_cftables[entry.offset] = cie_cftable
         else:
             print_fde(entry, cie_cftables[entry.cie.offset], target_format, eh_frame.header.address)
-
-    # CieRecord.read doesn't return null record explicitly, but it is present in
-    # the stream and objdump prints it.
-    print(f'\n{sr.current_position:08x} ZERO terminator\n\n')
+    print()
 
 
 def print_dwarf_str(
