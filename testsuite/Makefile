@@ -2,7 +2,7 @@ CC := gcc
 OBJDUMP := objdump
 READELF := readelf
 
-TESTS := eh_frame
+TESTS := eh_frame test1
 
 .SECONDARY:
 
@@ -16,6 +16,9 @@ all: $(addsuffix .ref.txt,$(TESTS))
 
 %.x: %.s
 	$(CC) -nostartfiles -o $@ $<
+
+%.x: %.c
+	$(CC) -O0 -g -o $@ $<
 
 .PHONY: clean
 clean:
