@@ -613,9 +613,8 @@ def print_dwarf_rawline(
 ) -> None:
     debug_line = next((s for s in elf_obj.sections if s.name == '.debug_line'), None)
     if debug_line is None:
-        print()
         return
-    print('\nRaw dump of debug contents of section .debug_line:\n')
+    print('Raw dump of debug contents of section .debug_line:\n')
 
     stream = BytesIO(elf_obj.section_content(debug_line.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
@@ -637,9 +636,12 @@ def print_dwarf_rawline(
             print(f'  Opcode {i} has {args_num} {"args" if args_num != 1 else "arg"}')
         print()
 
-        print(f' The Directory Table (offset {line_prog.include_directories_offset:#x}):')
-        for i, dir in enumerate(line_prog.include_directories, start=1):
-            print(f'  {i}\t{dir}')
+        if len(line_prog.include_directories):
+            print(f' The Directory Table (offset {line_prog.include_directories_offset:#x}):')
+            for i, dir in enumerate(line_prog.include_directories, start=1):
+                print(f'  {i}\t{dir}')
+        else:
+            print(' The Directory Table is empty.')
         print()
 
         print(f' The File Name Table (offset {line_prog.file_table_offset:#x}):')
@@ -669,9 +671,8 @@ def print_dwarf_decodedline(
 ) -> None:
     debug_line = next((s for s in elf_obj.sections if s.name == '.debug_line'), None)
     if debug_line is None:
-        print()
         return
-    print('\nContents of the .debug_line section:\n')
+    print('Contents of the .debug_line section:\n')
 
     stream = BytesIO(elf_obj.section_content(debug_line.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
@@ -800,7 +801,6 @@ def print_dwarf_info(
 ) -> None:
     debug_info = next((s for s in elf_obj.sections if s.name == '.debug_info'), None)
     if debug_info is None:
-        print()
         return
 
     debug_str_section = next((s for s in elf_obj.sections if s.name == '.debug_str'), None)
@@ -813,7 +813,7 @@ def print_dwarf_info(
     debug_abbrev_stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
     debug_abbrev_sr = dwarf.StreamReader(elf_obj.data_format, debug_abbrev_stream)
 
-    print('\nContents of the .debug_info section:\n')
+    print('Contents of the .debug_info section:\n')
     stream = BytesIO(elf_obj.section_content(debug_info.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     for cu in dwarf.CompilationUnit.read(sr, debug_abbrev_sr):
@@ -852,9 +852,8 @@ def print_dwarf_abbrev(
 
     debug_abbrev = next((s for s in elf_obj.sections if s.name == '.debug_abbrev'), None)
     if debug_abbrev is None:
-        print()
         return
-    print('\nContents of the .debug_abbrev section:\n')
+    print('Contents of the .debug_abbrev section:\n')
     stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     for abbrev in dwarf.AbbreviationDeclaration.read(sr):
@@ -867,9 +866,8 @@ def print_dwarf_aranges(
 ) -> None:
     debug_aranges = next((s for s in elf_obj.sections if s.name == '.debug_aranges'), None)
     if debug_aranges is None:
-        print()
         return
-    print(f'\nContents of the {debug_aranges.name} section:\n')
+    print(f'Contents of the {debug_aranges.name} section:\n')
     stream = BytesIO(elf_obj.section_content(debug_aranges.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     left_column_format = '<25'
@@ -936,7 +934,7 @@ def print_dwarf_frames(
     eh_frame = next((s for s in elf_obj.sections if s.name == '.eh_frame'), None)
     if eh_frame is None:
         return
-    print('\nContents of the .eh_frame section:\n')
+    print('Contents of the .eh_frame section:\n')
 
     def print_cie(cie: dwarf.CieRecord, fmt: dwarf.TargetFormatter) -> None:
         print()
@@ -970,11 +968,12 @@ def print_dwarf_frames(
     for entry in dwarf.read_eh_frame(sr):
         if isinstance(entry, dwarf.CieRecord):
             if entry.is_zero_record:
-                print(f'\n{entry.offset:08x} ZERO terminator\n\n')
+                print(f'\n{entry.offset:08x} ZERO terminator\n')
             else:
                 print_cie(entry, target_format)
         else:
             print_fde(entry, target_format, eh_frame.header.address)
+    print()
 
 
 def print_dwarf_frames_interp(
@@ -983,7 +982,7 @@ def print_dwarf_frames_interp(
     eh_frame = next((s for s in elf_obj.sections if s.name == '.eh_frame'), None)
     if eh_frame is None:
         return
-    print('\nContents of the .eh_frame section:\n')
+    print('Contents of the .eh_frame section:\n')
 
     def print_fde(
         fde: dwarf.FdeRecord,
@@ -1031,9 +1030,8 @@ def print_dwarf_str(
 ) -> None:
     debug_str = next((s for s in elf_obj.sections if s.name == '.debug_str'), None)
     if debug_str is None:
-        print()
         return
-    print(f'\nContents of the {debug_str.name} section:\n')
+    print(f'Contents of the {debug_str.name} section:\n')
     debug_str_content = elf_obj.section_content(debug_str.number)
     _dump_hex(debug_str_content)
     print()
@@ -1084,20 +1082,20 @@ if __name__ == "__main__":
     if args.hex_dump:
         hex_dump(args.hex_dump, elf_obj)
     if args.dwarf:
-        if 'rawline' in args.dwarf:
-            print_dwarf_rawline(elf_obj)
-        if 'decodedline' in args.dwarf:
-            print_dwarf_decodedline(elf_obj)
+        if 'frames' in args.dwarf:
+            print_dwarf_frames(elf_obj)
+        if 'frames-interp' in args.dwarf:
+            print_dwarf_frames_interp(elf_obj)
+        if 'aranges' in args.dwarf:
+            print_dwarf_aranges(elf_obj)
         if 'info' in args.dwarf:
             print_dwarf_info(elf_obj)
         if 'abbrev' in args.dwarf:
             print_dwarf_abbrev(elf_obj)
-        if 'aranges' in args.dwarf:
-            print_dwarf_aranges(elf_obj)
-        if 'frames-interp' in args.dwarf:
-            print_dwarf_frames_interp(elf_obj)
-        if 'frames' in args.dwarf:
-            print_dwarf_frames(elf_obj)
+        if 'rawline' in args.dwarf:
+            print_dwarf_rawline(elf_obj)
+        if 'decodedline' in args.dwarf:
+            print_dwarf_decodedline(elf_obj)
         if 'str' in args.dwarf:
             print_dwarf_str(elf_obj)
 

@@ -1,6 +1,11 @@
 CC := gcc
+OBJCOPY := objcopy
 OBJDUMP := objdump
+# OBJDUMP := /home/anton/binutils-gdb/binutils/objdump
 READELF := readelf
+
+# Using -gstrict-dwarf to disable GNU extensions.
+GFLAGS := -g -gstrict-dwarf
 
 TESTS := eh_frame test1
 
@@ -11,14 +16,16 @@ all: $(addsuffix .ref.txt,$(TESTS))
 
 %.ref.txt: %.x
 	$(READELF) -W -h -l -S -s -r -d -V -n $< > $@
-	$(OBJDUMP) --dwarf $< | tail -n+3 >> $@
-	$(OBJDUMP) --dwarf=frames-interp,decodedline $< | tail -n+3 >> $@
+	$(OBJDUMP) --dwarf $< | tail -n+4 >> $@
+	$(OBJDUMP) --dwarf=frames-interp,decodedline $< | tail -n+4 >> $@
 
 %.x: %.s
-	$(CC) -nostartfiles -o $@ $<
+	$(CC) -nostartfiles $(GFLAGS) -o $@ $<
 
+# Strip GNU property which is not supported by parse_elf.py
 %.x: %.c
-	$(CC) -O0 -g -o $@ $<
+	$(CC) -O0 $(GFLAGS) -o $@ $<
+	$(OBJCOPY) -R.note.gnu.property $@
 
 .PHONY: clean
 clean:
