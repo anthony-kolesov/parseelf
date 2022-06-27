@@ -305,23 +305,27 @@ def print_notes(
 
         if name == 'GNU':
             if note_type == NT_GNU_ABI_TAG:
-                print_section_info('NT_GNU_ABI_TAG', 'ABI version tag')
                 if descsz < 16:
-                    print('    <corrupt GNU_ABI_TAG>')
-                    continue
-                os = {
-                    0: 'Linux',
-                    1: 'Hurd',
-                    2: 'Solaris',
-                    3: 'FreeBSD',
-                    4: 'NetBSD',
-                    5: 'Syllable',
-                    6: 'NaCl',
-                }.get(df.read_uint4(stream.read(4)), "Unknown")
-                major = df.read_uint4(stream.read(4))
-                minor = df.read_uint4(stream.read(4))
-                subminor = df.read_uint4(stream.read(4))
-                print(f'    OS: {os}, ABI: {major}.{minor}.{subminor}')
+                    suffix = '    <corrupt GNU_ABI_TAG>'
+                else:
+                    os = {
+                        0: 'Linux',
+                        1: 'Hurd',
+                        2: 'Solaris',
+                        3: 'FreeBSD',
+                        4: 'NetBSD',
+                        5: 'Syllable',
+                        6: 'NaCl',
+                    }.get(df.read_uint4(stream.read(4)), "Unknown")
+                    major = df.read_uint4(stream.read(4))
+                    minor = df.read_uint4(stream.read(4))
+                    subminor = df.read_uint4(stream.read(4))
+                    suffix = f'    OS: {os}, ABI: {major}.{minor}.{subminor}'
+                print_section_info(
+                    'NT_GNU_ABI_TAG',
+                    'ABI version tag',
+                    suffix,
+                )
             elif note_type == NT_GNU_BUILD_ID:
                 build_id = stream.read(descsz)
                 print_section_info(
