@@ -397,7 +397,7 @@ class CfaInstruction(NamedTuple):
 
             case (CfaInstructionEncoding.DW_CFA_val_offset |
                   CfaInstructionEncoding.DW_CFA_val_offset_sf):
-                return f'{name}: {fmt.get_full_regname(args[0])} at cfa{args[1] * daf:+}'
+                return f'{name}: {fmt.get_full_regname(args[0])} is cfa{args[1] * daf:+}'
 
             case CfaInstructionEncoding.DW_CFA_register:
                 return f'{name}: {fmt.get_full_regname(args[0])} in {fmt.get_full_regname(args[1])}'
@@ -1037,8 +1037,9 @@ class RegisterRule:
             case CfaInstructionEncoding.DW_CFA_register:
                 return fmt.get_full_regname(self.reg)
             case (CfaInstructionEncoding.DW_CFA_val_offset |
-                  CfaInstructionEncoding.DW_CFA_val_offset_sf |
-                  CfaInstructionEncoding.DW_CFA_val_expression |
+                  CfaInstructionEncoding.DW_CFA_val_offset_sf):
+                return f'v{self.offset:+}'
+            case (CfaInstructionEncoding.DW_CFA_val_expression |
                   CfaInstructionEncoding.DW_CFA_restore |
                   CfaInstructionEncoding.DW_CFA_restore_extended):
                 raise NotImplementedError()
@@ -1137,7 +1138,13 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
                 return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, reg=args[1]))
             case (CfaInstructionEncoding.DW_CFA_val_offset |
                   CfaInstructionEncoding.DW_CFA_val_offset_sf):
-                raise NotImplementedError(str(instr))
+                return self.__set_rule(
+                    current_row,
+                    args[0],
+                    RegisterRule(instr.instruction, offset=args[1] * self.__cie.data_alignment_factor)
+                )
+            case CfaInstructionEncoding.DW_CFA_same_value:
+                return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction))
             case CfaInstructionEncoding.DW_CFA_expression:
                 return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, expression=args[1]))
             case (CfaInstructionEncoding.DW_CFA_restore |
