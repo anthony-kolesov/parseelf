@@ -38,6 +38,6 @@ do
         version-info strings hex dwarf-frames dwarf-frames-interp dwarf-rawline \
         dwarf-decodedline dwarf-abbrev dwarf-info dwarf-str dwarf-aranges
     do
-        diff --strip-trailing-cr -uN ref/$f/$t.$f.txt $f/$t.$f.txt
+        diff --strip-trailing-cr --ignore-trailing-space -uN ref/$f/$t.$f.txt $f/$t.$f.txt
     done
 done

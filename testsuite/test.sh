@@ -15,6 +15,6 @@ do
     $PYTHON $PFLAGS --ignore-dir='C:\Python310\lib' $parse -f -l -S -s -r -d -V -n ${test}.x > ${test}.gen.txt
     $PYTHON $PFLAGS --ignore-dir='C:\Python310\lib' $parse $DW_CATEGORIES ${test}.x >> ${test}.gen.txt
     $PYTHON $PFLAGS --ignore-dir='C:\Python310\lib' $parse --dwarf=frames-interp --dwarf=decodedline ${test}.x >> ${test}.gen.txt
-    diff --strip-trailing-cr -uN ${test}.ref.txt ${test}.gen.txt
+    diff --strip-trailing-cr --ignore-trailing-space -uN ${test}.ref.txt ${test}.gen.txt
 done
 $PYTHON -mtrace --report --file=$COVERAGE_FILE --missing --summary --coverdir=$COVERAGE_RES

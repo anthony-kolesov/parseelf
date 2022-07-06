@@ -686,12 +686,14 @@ def print_dwarf_decodedline(
         # If directory index is 0, then directory is printed as current
         # directory: `./`, but if there is no directory table at all, then `./`
         # is not printed.
-        if file.directory_index > 0:
-            dirname = line_prog.include_directories[file.directory_index - 1]
+        if len(line_prog.include_directories) == 0:
+            print(f'CU: {file.name}:')
         else:
-            dirname = './' if len(line_prog.include_directories) else ''
-        filepath = file.name
-        print(f'CU: {dirname}{filepath}:')
+            if file.directory_index > 0:
+                dirname = line_prog.include_directories[file.directory_index - 1]
+            else:
+                dirname = ''
+            print(f'{dirname}{file.name}:')
         print(f'{"File name":{colw[0]}} {"Line number":>{colw[1]}} {"Starting address":>{colw[2]}} '
               f'{"View":>{colw[3]}} {"Stmt":>{colw[4]}}')
 
@@ -699,8 +701,9 @@ def print_dwarf_decodedline(
             file = stateMachine.file_names[row.file-1]
             filepath = file.name
             stmt = 'x' if row.is_stmt else ''
+            line = row.line if not row.end_sequence else '-'
             print(
-                f'{filepath:{colw[0]}} {row.line:>{colw[1]}} {row.address:>#{colw[2]}x} '
+                f'{filepath:{colw[0]}} {line:>{colw[1]}} {row.address:>#{colw[2]}x} '
                 f'{"":{colw[3]}} {stmt:>{colw[4]}}'
             )
         print()
