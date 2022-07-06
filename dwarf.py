@@ -773,7 +773,7 @@ class CieRecord:
     code_alignment_factor: int
     data_alignment_factor: int
     return_address_register: int
-    initial_instructions: bytes
+    initial_instructions: Sequence[CfaInstruction]
     augmentation_data: bytes = b''
     augmentation_info: CieAugmentation = CieAugmentation()
 
@@ -822,6 +822,10 @@ class CieRecord:
         # already read bytes.
         bytes_read = sr.current_position - post_length_offset
         init_instr = sr.bytes(length - bytes_read)
+        init_instr_sr = StreamReader(sr.data_format, BytesIO(init_instr))
+        init_instructions = tuple(CfaInstruction.read(
+            init_instr_sr,
+        ))
 
         return CieRecord(
             entry_offset,
@@ -831,14 +835,14 @@ class CieRecord:
             caf,
             daf,
             ra,
-            init_instr,
+            init_instructions,
             augmentation_data,
             cie_augmentation,
         )
 
     @staticmethod
     def zero_record(offset: int) -> 'CieRecord':
-        return CieRecord(offset, 0, 0, '', 0, 0, 0, b'')
+        return CieRecord(offset, 0, 0, '', 0, 0, 0, tuple())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -858,7 +862,7 @@ class FdeRecord:
     # effective address, but that seems like an overcomplication, since it
     # creates a new dependency on elf module.
     augmentation_data: bytes
-    instructions: bytes
+    instructions: Sequence[CfaInstruction]
 
     @staticmethod
     def read(
@@ -901,6 +905,10 @@ class FdeRecord:
         # substract id_offset, instead of fde_start.
         bytes_read = sr.current_position - post_length_offset
         instr = sr.bytes(length - bytes_read)
+        instr_sr = StreamReader(sr.data_format, BytesIO(instr))
+        instructions = tuple(CfaInstruction.read(
+            instr_sr,
+        ))
 
         return FdeRecord(
             entry_offset,
@@ -911,7 +919,7 @@ class FdeRecord:
             pc_begin,
             pc_range,
             augmentation_data,
-            instr,
+            instructions,
         )
 
     def abs_pc_begin(self, section_address: int = 0) -> int:
