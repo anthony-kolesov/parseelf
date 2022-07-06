@@ -290,7 +290,7 @@ class CfaInstructionEncoding(Enum):
     DW_CFA_offset = (0xFF02, (StreamReader.uleb128,))
     DW_CFA_restore = 0xFF03
     DW_CFA_nop = 0x00
-    DW_CFA_set_loc = (0x01, (StreamReader.pointer,))
+    DW_CFA_set_loc = 0x01  # Size of an argument depends on CIE augmentation.
     DW_CFA_advance_loc1 = (0x02, (StreamReader.uint1,))
     DW_CFA_advance_loc2 = (0x03, (StreamReader.uint2,))
     DW_CFA_advance_loc4 = (0x04, (StreamReader.uint4,))
@@ -320,8 +320,16 @@ class CfaInstruction(NamedTuple):
     operands: tuple
 
     @staticmethod
-    def read(sr: StreamReader) -> Iterator['CfaInstruction']:
-        """Read a sequence of CFA instructions from a stream reader until reader's end."""
+    def read(
+        sr: StreamReader,
+        augmentation_info: 'CieAugmentation',
+        stream_offset: int,
+    ) -> Iterator['CfaInstruction']:
+        """Read a sequence of CFA instructions from a stream reader until reader's end.
+
+        :param stream_offset: The base offset of the stream reader. This is
+            needed to handle PC-relative pointers if specified by augmentation.
+            This must be an offset in the file, not offset in the section."""
         while not sr.at_eof:
             b = sr.uint1()
             # Argument is inside of opcode
@@ -331,6 +339,13 @@ class CfaInstruction(NamedTuple):
                     instr = CfaInstructionEncoding(b & 0x3F)
                     op_values = tuple(operand_type(sr) for operand_type in instr.operand_types)
                     match instr:
+                        case CfaInstructionEncoding.DW_CFA_set_loc:
+                            assert augmentation_info.fde_pointer_encoding
+                            offset = sr.current_position
+                            loc = augmentation_info.fde_pointer_encoding.read_value(sr)
+                            assert augmentation_info.fde_pointer_adjust == DW_EH_PE_Relation.pcrel
+                            loc = loc + offset + stream_offset
+                            yield CfaInstruction(instr, (loc, ))
                         case CfaInstructionEncoding.DW_CFA_def_cfa_expression:
                             expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[0]))))
                             yield CfaInstruction(instr, (expr, ))
@@ -787,13 +802,17 @@ class CieRecord:
         entry_offset: int,
         length: int,
         post_length_offset: int,
+        eh_frame_offset: int,
     ) -> 'CieRecord':
         """Read an CIE record from the .eh_frame.
 
         :param sr: The stream reader to read from.
         :param entry_offset: The offset of the CIE beggining.
         :param length: The CIE size without the length field itself.
-        :param post_length_offset: The offset of the CIE pointer field."""
+        :param post_length_offset: The offset of the CIE pointer field.
+        :param eh_frame_offset: The offset of the .eh_frame section in the file.
+            This is needed to handle PC-relative pointers if specified by
+            augmentation."""
         # Note that this implements Linux .eh_frame structure, which is
         # slightly different from .debug_frame.
         version = sr.uint1()
@@ -820,11 +839,14 @@ class CieRecord:
 
         # Length of initial instructions field is defined as size of CIE minus
         # already read bytes.
-        bytes_read = sr.current_position - post_length_offset
+        init_instr_offset = sr.current_position
+        bytes_read = init_instr_offset - post_length_offset
         init_instr = sr.bytes(length - bytes_read)
         init_instr_sr = StreamReader(sr.data_format, BytesIO(init_instr))
         init_instructions = tuple(CfaInstruction.read(
             init_instr_sr,
+            cie_augmentation,
+            eh_frame_offset + init_instr_offset,
         ))
 
         return CieRecord(
@@ -871,6 +893,7 @@ class FdeRecord:
         entry_offset: int,
         length: int,
         post_length_offset: int,
+        eh_frame_offset: int,
         cie_ptr: int,
     ) -> 'FdeRecord':
         """Read an FDE record from the .eh_frame.
@@ -879,7 +902,11 @@ class FdeRecord:
         :param cie_records: Mapping of section offsets to CIE records.
         :param entry_offset: The offset of the CIE beggining.
         :param length: The CIE size without the length field itself.
-        :param post_length_offset: The offset of the CIE pointer field."""
+        :param post_length_offset: The offset of the CIE pointer field.
+        :param eh_frame_offset: The offset of the .eh_frame section in the file.
+            This is needed to handle PC-relative pointers if specified by
+            augmentation.
+        :param cie_ptr: The value of the CIE pointer field in the file."""
         assert cie_ptr != 0, "FDE record can't have a zero CIE pointer field."
         cie_abs_position = post_length_offset - cie_ptr
         cie = cie_records[cie_abs_position]
@@ -903,11 +930,14 @@ class FdeRecord:
 
         # Remember that length doesn't count the `length` fields, hence
         # substract id_offset, instead of fde_start.
-        bytes_read = sr.current_position - post_length_offset
+        instr_offset = sr.current_position
+        bytes_read = instr_offset - post_length_offset
         instr = sr.bytes(length - bytes_read)
         instr_sr = StreamReader(sr.data_format, BytesIO(instr))
         instructions = tuple(CfaInstruction.read(
             instr_sr,
+            cie.augmentation_info,
+            eh_frame_offset + instr_offset,
         ))
 
         return FdeRecord(
@@ -933,10 +963,16 @@ class FdeRecord:
         return section_address + self.pc_begin_offset + self.pc_begin
 
 
-def read_eh_frame(sr: StreamReader) -> Iterator[CieRecord | FdeRecord]:
+def read_eh_frame(
+    sr: StreamReader,
+    eh_frame_offset: int,
+) -> Iterator[CieRecord | FdeRecord]:
     """Read an .eh_frame section as a sequence of CIE and FDE records.
 
-    :param sr: The stream reader for the .eh_frame section."""
+    :param sr: The stream reader for the .eh_frame section.
+    :param eh_frame_offset: The offset of the .eh_frame section in the file.
+        This is needed to handle PC-relative pointers if specified by
+        augmentation."""
     # Mapping of offsets to CIE records. Needed because FDE records can
     # reference any of the previous CIE records.
     cie_records: dict[int, CieRecord] = {}
@@ -956,13 +992,13 @@ def read_eh_frame(sr: StreamReader) -> Iterator[CieRecord | FdeRecord]:
         cie_ptr = sr.uint4()
 
         if cie_ptr == 0:
-            cie = CieRecord.read(sr, entry_offset, length, post_length_offset)
+            cie = CieRecord.read(sr, entry_offset, length, post_length_offset, eh_frame_offset)
             cie_records[entry_offset] = cie
             yield cie
             if cie.is_zero_record:
                 return
         else:
-            yield FdeRecord.read(sr, cie_records, entry_offset, length, post_length_offset, cie_ptr)
+            yield FdeRecord.read(sr, cie_records, entry_offset, length, post_length_offset, eh_frame_offset, cie_ptr)
         # Set position just to ensure entry is skipped whether it was properly parsed or not.
         sr.set_abs_position(post_length_offset + length)
 

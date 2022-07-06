@@ -971,7 +971,7 @@ def print_dwarf_frames(
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    for entry in dwarf.read_eh_frame(sr):
+    for entry in dwarf.read_eh_frame(sr, eh_frame.header.offset):
         if isinstance(entry, dwarf.CieRecord):
             if entry.is_zero_record:
                 print(f'\n{entry.offset:08x} ZERO terminator\n')
@@ -1007,7 +1007,7 @@ def print_dwarf_frames_interp(
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     cie_cftables: dict[int, dwarf.CallFrameTable] = {}
-    for entry in dwarf.read_eh_frame(sr):
+    for entry in dwarf.read_eh_frame(sr, eh_frame.header.offset):
         if isinstance(entry, dwarf.CieRecord):
             if entry.is_zero_record:
                 print(f'\n{entry.offset:08x} ZERO terminator\n')
