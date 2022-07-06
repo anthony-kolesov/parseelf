@@ -1238,8 +1238,8 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             return fmt.get_dwarf_regname(regnum)
 
         regs = self.mentioned_registers()
-        regnames = (format(rn(r), '5') for r in regs)
-        print(f'{"   LOC  ":{fmt.pointer_char_width}} CFA      {" ".join(regnames)} ', file=stream)
+        regnames = (format(rn(r), '6') for r in regs)
+        print(f'{"   LOC  ":{fmt.pointer_char_width}} CFA      {"".join(regnames)}', file=stream)
 
         for row in self:
             if len(row.cfa.expression):
@@ -1250,8 +1250,8 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             rules_str = []
             for regnum in regs:
                 rule = row.register_rules.get(regnum, RegisterRule())
-                rules_str.append(f'{rule.objdump_format(fmt):5}')
-            print(f'{row.loc:{fmt.pointer_format}} {cfa:8} {" ".join(rules_str)} ', file=stream)
+                rules_str.append(format(rule.objdump_format(fmt) + ' ', '6'))
+            print(f'{row.loc:{fmt.pointer_format}} {cfa:8} {"".join(rules_str)}', file=stream)
 
     def copy(self, offset: int) -> 'CallFrameTable':
         """Create a new table that uses current as initial.
