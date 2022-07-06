@@ -1498,6 +1498,15 @@ class LineNumberStateMachine:
             match lns.operands[0]:
                 case LineNumberExtendedEncoding.DW_LNE_end_sequence:
                     self.end_sequence = True
+                    # This is somewhat confusing - DWARF specification doesn't
+                    # specify that DW_LNE_end_sequence should set `is statement`
+                    # to False, however binutils 2.38.50 does that, while 2.34
+                    # didn't do that. To enable testing against 2.38.50 I
+                    # implement the same logic as it, even though it is not
+                    # technically in the specification (perhaps somewhere in the
+                    # binutils/dwarf.c there is an explanation, I haven't
+                    # checked).
+                    self.is_stmt = False
                     self.__append_row()
                     self.__reset()
                     return f'Extended opcode {lns.operands[0]}: End of Sequence'
