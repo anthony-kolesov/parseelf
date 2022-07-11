@@ -995,8 +995,6 @@ def read_eh_frame(
             cie = CieRecord.read(sr, entry_offset, length, post_length_offset, eh_frame_offset)
             cie_records[entry_offset] = cie
             yield cie
-            if cie.is_zero_record:
-                return
         else:
             yield FdeRecord.read(sr, cie_records, entry_offset, length, post_length_offset, eh_frame_offset, cie_ptr)
         # Set position just to ensure entry is skipped whether it was properly parsed or not.
