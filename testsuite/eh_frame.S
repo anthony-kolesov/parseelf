@@ -1,3 +1,5 @@
+#include "dwarf.S"
+
 .globl	_start
 .type	_start, @function
 _start:
@@ -93,44 +95,44 @@ _start:
 	.cfi_rel_offset 2, 8
 	.cfi_endproc
 
-	# Hand-written dwarf, without CFI directives.
+	# Hand-written DWARF to test cases that can't be tested with assembler directives.
 	.cfi_startproc simple
 	.long 0  # Without this .long, .cfi_escape will not generate anything.
 	# DW_CFA_set_loc
-	.cfi_escape 0x1, 0x0, 0x1, 0x0, 0x0
+	.cfi_escape DW_CFA_set_loc, 0x0, 0x1, 0x0, 0x0
 	# DW_CFA_advance_loc1
-	.cfi_escape 0x2, 0x0c
-	.cfi_escape 0x2, 0x01
-	.cfi_escape 0x2, 0xff
+	.cfi_escape DW_CFA_advance_loc1, 0x0c
+	.cfi_escape DW_CFA_advance_loc1, 0x01
+	.cfi_escape DW_CFA_advance_loc1, 0xff
 	# DW_CFA_advance_loc2
-	.cfi_escape 0x3, 0x00, 0x04
-	.cfi_escape 0x3, 0xff, 0xff
-	.cfi_escape 0x3, 0x1, 0x0
+	.cfi_escape DW_CFA_advance_loc2, 0x00, 0x04
+	.cfi_escape DW_CFA_advance_loc2, 0xff, 0xff
+	.cfi_escape DW_CFA_advance_loc2, 0x1, 0x0
 	# DW_CFA_advance_loc4
-	.cfi_escape 0x4, 0,0,1,0
+	.cfi_escape DW_CFA_advance_loc4, 0, 0, 1, 0
 	# DW_CFA_advance_loc
-	.cfi_escape 0x40 + 0xc
+	.cfi_escape DW_CFA_advance_loc(0xc)
 
 	# DW_CFA_def_cfa
 	.long 0
-	.cfi_escape 0x0c, 0xc, 0x8
+	.cfi_escape DW_CFA_def_cfa, 0xc, 0x8
 	# DW_CFA_def_cfa_sf
 	.long 0
-	.cfi_escape 0x12, 0xb, 0x8
+	.cfi_escape DW_CFA_def_cfa_sf, 0xb, 0x8
 	# DW_CFA_def_cfa_register
 	.long 0
-	.cfi_escape 0x0d, 0xc
+	.cfi_escape DW_CFA_def_cfa_register, 0xc
 	# DW_CFA_def_cfa_offset
 	.long 0
-	.cfi_escape 0x0e, 0x8
+	.cfi_escape DW_CFA_def_cfa_offset, 0x8
 	# DW_CFA_def_cfa_offset_sf
 	.long 0
-	.cfi_escape 0x13, 0x48
+	.cfi_escape DW_CFA_def_cfa_offset_sf, 0x48
 	# DW_CFA_def_cfa_expression, DW_OP_breg7 (rsp): 8
 	.long 0
-	.cfi_escape 0x0f, 0x2, 0x77, 0x8
+	.cfi_escape DW_CFA_def_cfa_expression, 0x2, DW_OP_breg(7), 0x8
 	# DW_CFA_def_cfa so CFA is not an expression.
 	.long 0
-	.cfi_escape 0x0c, 0xc, 0x8
+	.cfi_escape DW_CFA_def_cfa, 0xc, 0x8
 
 	.cfi_endproc

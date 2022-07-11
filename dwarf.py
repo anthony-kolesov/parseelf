@@ -286,9 +286,9 @@ class CfaInstructionEncoding(Enum):
         obj.operand_types = operand_types
         return obj
 
-    DW_CFA_advance_loc = 0xFF01
-    DW_CFA_offset = (0xFF02, (StreamReader.uleb128,))
-    DW_CFA_restore = 0xFF03
+    DW_CFA_advance_loc = 0x40
+    DW_CFA_offset = (0x80, (StreamReader.uleb128,))
+    DW_CFA_restore = 0xC0
     DW_CFA_nop = 0x00
     DW_CFA_set_loc = 0x01  # Size of an argument depends on CIE augmentation.
     DW_CFA_advance_loc1 = (0x02, (StreamReader.uint1,))
