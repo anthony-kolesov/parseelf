@@ -22,6 +22,9 @@ all: $(addsuffix .ref.txt,$(TESTS))
 %.x: %.s
 	$(CC) -nostartfiles $(GFLAGS) -o $@ $<
 
+%.x: %.S
+	$(CC) -nostartfiles $(GFLAGS) -o $@ $<
+
 # Strip GNU property which is not supported by parse_elf.py
 %.x: %.c
 	$(CC) -O0 $(GFLAGS) -o $@ $<
