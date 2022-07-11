@@ -1,7 +1,6 @@
 CC := gcc
 OBJCOPY := objcopy
 OBJDUMP := objdump
-# OBJDUMP := /home/anton/binutils-gdb/binutils/objdump
 READELF := readelf
 
 # Using -gstrict-dwarf to disable GNU extensions.

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-READELF=readelf
-OBJDUMP=objdump
+READELF=${READELF:-readelf}
+OBJDUMP=${OBJDUMP:-objdump}
 
 cp -L /usr/bin/gcc ../test-gcc.x
 
