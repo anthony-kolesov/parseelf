@@ -135,4 +135,12 @@ _start:
 	.long 0
 	.cfi_escape DW_CFA_def_cfa, 0xc, 0x8
 
+	# DW_CFA_expression
+	.long 0
+	.cfi_escape DW_CFA_expression, 0x1, 0x2, DW_OP_breg(7), 0x8
+
+	# DW_CFA_val_expression
+	.long 0
+	.cfi_escape DW_CFA_val_expression, 0x1, 0x2, DW_OP_breg(6), 0xC
+
 	.cfi_endproc

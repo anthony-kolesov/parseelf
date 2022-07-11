@@ -1076,6 +1076,8 @@ class RegisterRule:
                 return 's'
             case CfaInstructionEncoding.DW_CFA_expression:
                 return 'exp'
+            case CfaInstructionEncoding.DW_CFA_val_expression:
+                return 'vexp'
             case CfaInstructionEncoding.DW_CFA_register:
                 return fmt.get_full_regname(self.reg)
             case (CfaInstructionEncoding.DW_CFA_val_offset |
@@ -1189,6 +1191,12 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
                 return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction))
             case CfaInstructionEncoding.DW_CFA_expression:
                 return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, expression=args[1]))
+            case CfaInstructionEncoding.DW_CFA_val_expression:
+                return self.__set_rule(
+                    current_row,
+                    args[0],
+                    RegisterRule(instr.instruction, expression=args[1])
+                )
             case (CfaInstructionEncoding.DW_CFA_restore |
                   CfaInstructionEncoding.DW_CFA_restore_extended):
                 return self.__set_rule(
