@@ -449,6 +449,18 @@ class ExpressionOperationEncoding(Enum):
         obj.operand_types = operand_types
         return obj
 
+    # This function must be defined before it is used in static field declaration.
+    @staticmethod
+    def read_from_block(sr: StreamReader) -> Sequence['ExpressionOperation']:
+        """Read a DWARF block from the stream and then parse expression in the block.
+
+        This function returns sequence only because the function is called on
+        only one place and that place will have much simpler code if doesn't
+        have to convert iterable to sequence itself."""
+        buffer = BytesIO(sr.block())
+        expression_reader = StreamReader(sr.data_format, buffer)
+        return tuple(ExpressionOperation.read(expression_reader))
+
     DW_OP_addr = (0x03, (StreamReader.pointer, ))
     DW_OP_deref = 0x06
     DW_OP_const1u = (0x08, (StreamReader.uint1, ))
@@ -603,6 +615,19 @@ class ExpressionOperationEncoding(Enum):
     DW_OP_bit_piece = (0x9d, (StreamReader.uleb128, StreamReader.uleb128))
     DW_OP_implicit_value = (0x9e, (StreamReader.block, ))
     DW_OP_stack_value = 0x9f
+    # DWARF 5
+    DW_OP_implicit_pointer = (0xa0, (StreamReader.offset, StreamReader.sleb128))
+    DW_OP_addrx = (0xa1, (StreamReader.uleb128, ))
+    DW_OP_constx = (0xa2, (StreamReader.uleb128, ))
+    # DW_OP_entry_value has two operands: ULEB size and block of that size.
+    DW_OP_entry_value = (0xa3, (read_from_block, ))
+    # DW_OP_const_type has two operands: 1-byte size and block of that size.
+    DW_OP_const_type = (0xa4, (StreamReader.uleb128, StreamReader.block1))
+    DW_OP_regval_type = (0xa5, (StreamReader.uleb128, StreamReader.uleb128))
+    DW_OP_deref_type = (0xa6, (StreamReader.uint1, StreamReader.uleb128))
+    DW_OP_xderef_type = (0xa7, (StreamReader.uint1, StreamReader.uleb128))
+    DW_OP_convert = (0xa8, (StreamReader.uleb128, ))
+    DW_OP_reinterpret = (0xa9, (StreamReader.uleb128, ))
 
 
 class ExpressionOperation(NamedTuple):
@@ -664,7 +689,8 @@ class ExpressionOperation(NamedTuple):
                 # binutils side, so I don't do the same here, but also I don't
                 # include "negative" values in tests.
                 return f'{self.operation.name}: <{self.operands[0]:#x}>'
-            case ExpressionOperationEncoding.DW_OP_call_ref:
+            case (ExpressionOperationEncoding.DW_OP_call_ref |
+                  ExpressionOperationEncoding.DW_OP_implicit_pointer):
                 # Apparantly binutils doesn't support this.
                 return f'({self.operation.name} in frame info)'
             case ExpressionOperationEncoding.DW_OP_bit_piece:
@@ -672,6 +698,22 @@ class ExpressionOperation(NamedTuple):
             case ExpressionOperationEncoding.DW_OP_implicit_value:
                 byte_data = self.operands[0].hex(sep=" ", bytes_per_sep=1)
                 return f'{self.operation.name} {len(self.operands[0])} byte block: {byte_data} '
+            case (ExpressionOperationEncoding.DW_OP_addrx |
+                  ExpressionOperationEncoding.DW_OP_convert |
+                  ExpressionOperationEncoding.DW_OP_reinterpret):
+                return f'{self.operation.name} <{self.operands[0]:#x}>'
+            case ExpressionOperationEncoding.DW_OP_entry_value:
+                subexpression = ExpressionOperation.objdump_format_seq(fmt, self.operands[0])
+                return f'{self.operation.name}: ({subexpression})'
+            case (ExpressionOperationEncoding.DW_OP_const_type):
+                byte_data = self.operands[1].hex(sep=" ", bytes_per_sep=1)
+                return (f'{self.operation.name}: <{self.operands[0]:#x}>  '
+                        f'{len(self.operands[1])} byte block: {byte_data} ')
+            case (ExpressionOperationEncoding.DW_OP_regval_type):
+                return f'{self.operation.name}: {rn(self.operands[0])} <{self.operands[1]:#x}>'
+            case (ExpressionOperationEncoding.DW_OP_deref_type):
+                return f'{self.operation.name}: {self.operands[0]} <{self.operands[1]:#x}>'
+
         operands_str = operands_str = ': ' + ' '.join(str(x) for x in self.operands) if len(self.operands) > 0 else ''
         return self.operation.name + operands_str
 

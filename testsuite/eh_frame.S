@@ -331,5 +331,30 @@ expression_tests:
 	.long 0
 	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_stack_value
 
+	# DWARFv5
+	# Size depends on DWARF-bits.
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 7, DW_OP_implicit_pointer, 0xc4, 0xc3, 0xc2, 0xc1, 0xc1, 0x3
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_addrx, 0xc7, 0x48
+	# DW_OP_constx is not supported by binutils yet.
+	#.long 0
+	#.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_constx, 0xc9, 0x4a
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_entry_value, 0x1, DW_OP_reg(6)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 6, DW_OP_const_type, 0xc1, 0x2, 0x2, 0xC9, 0xC1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 5, DW_OP_regval_type, 0xC4, 0x45, 0xC6, 0x47
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 4, DW_OP_deref_type, 0xC1, 0xC2, 0x43
+	# DW_OP_xderef_type is not supported by binutils yet.
+	#.long 0
+	# .cfi_escape DW_CFA_def_cfa_expression, 4, DW_OP_xderef_type, 0xC1, 0xC2, 0x43
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_convert, 0xC1, 0x42
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_reinterpret, 0xC1, 0x42
+
 	.cfi_endproc
 
