@@ -1011,6 +1011,25 @@ _dwarf_register_names = {
         **{i: f'r{i}' for i in range(8, 16)},  # r8-r15, 8-15
         16: 'rip',
         **{(17 + i): f'xmm{i}' for i in range(16)},  # xmm0-xmm15, 17-32
+        **{(33 + i): f'st{i}' for i in range(8)},  # st0 - st7, 33 - 40
+        **{(41 + i): f'mm{i}' for i in range(8)},  # mm0 - mm7, 41 - 48
+        49: 'rflags',
+        50: 'es',
+        51: 'cs',
+        52: 'ss',
+        53: 'ds',
+        54: 'fs',
+        55: 'gs',
+        # 56, 57
+        58: 'fs.base',
+        59: 'gs.base',
+        # 60, 61
+        62: 'tr',
+        63: 'ldtr',
+        64: 'mxcsr',
+        65: 'fcw',
+        66: 'fsw',
+        **{(67 + i): f'xmm{i}' for i in range(16, 32)},  # xmm16-xmm31, 67-82
     },
     ElfMachineType.EM_386: {
         0: 'eax',
