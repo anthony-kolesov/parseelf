@@ -628,20 +628,51 @@ class ExpressionOperation(NamedTuple):
         def rn(regnum: int) -> str:
             dwname = fmt.get_dwarf_regname(regnum)
             if dwname:
-                return f'reg{regnum} ({dwname})'
-            return f'reg{regnum}'
+                return f'{regnum} ({dwname})'
+            return str(regnum)
 
-        if (ExpressionOperationEncoding.DW_OP_reg0.value < self.operation.value
-           and self.operation.value < ExpressionOperationEncoding.DW_OP_reg31.value):
+        if (ExpressionOperationEncoding.DW_OP_reg0.value <= self.operation.value
+           and self.operation.value <= ExpressionOperationEncoding.DW_OP_reg31.value):
             regnum = self.operation.value - 0x50
-            return f'DW_OP_{rn(regnum)}'
-        elif (ExpressionOperationEncoding.DW_OP_breg0.value < self.operation.value
-              < ExpressionOperationEncoding.DW_OP_breg31.value):
+            return f'DW_OP_reg{rn(regnum)}'
+        elif (ExpressionOperationEncoding.DW_OP_breg0.value <= self.operation.value
+              <= ExpressionOperationEncoding.DW_OP_breg31.value):
             regnum = self.operation.value - 0x70
-            return f'DW_OP_b{rn(regnum)}: {self.operands[0]}'
-        elif ExpressionOperationEncoding.DW_OP_implicit_value == self:
-            return f'{self.operation.name}: {self.operands[0].hex()}'
-        operands_str = operands_str = ': ' + ' '.join(self.operands) if len(self.operands) > 0 else ''
+            return f'DW_OP_breg{rn(regnum)}: {self.operands[0]}'
+
+        match self.operation:
+            case ExpressionOperationEncoding.DW_OP_addr:
+                return f'{self.operation.name}: {self.operands[0]:x}'
+            # For some reasons binutils prints const8 as two 4 byte words.
+            # Also lower word comes first.
+            case ExpressionOperationEncoding.DW_OP_const8u:
+                return f'{self.operation.name}: {self.operands[0] & 0xffffffff} {self.operands[0] >> 32}'
+            case ExpressionOperationEncoding.DW_OP_const8s:
+                upper_word = self.operands[0] >> 32
+                lower_word = self.operands[0] & 0xffffffff
+                if (lower_word >> 31) & 1:
+                    lower_word = -(0x100000000 - lower_word)
+                return f'{self.operation.name}: {lower_word} {upper_word}'
+            case ExpressionOperationEncoding.DW_OP_regx:
+                return f'{self.operation.name}: {rn(self.operands[0])}'
+            case ExpressionOperationEncoding.DW_OP_bregx:
+                return f'{self.operation.name}: {rn(self.operands[0])} {self.operands[1]}'
+            case (ExpressionOperationEncoding.DW_OP_call2 |
+                  ExpressionOperationEncoding.DW_OP_call4):
+                # Operands for 'call' are unsigned (see DWARFv5 2.5.1.5), yet
+                # binutils treats them as signed. That seems like a mistake on
+                # binutils side, so I don't do the same here, but also I don't
+                # include "negative" values in tests.
+                return f'{self.operation.name}: <{self.operands[0]:#x}>'
+            case ExpressionOperationEncoding.DW_OP_call_ref:
+                # Apparantly binutils doesn't support this.
+                return f'({self.operation.name} in frame info)'
+            case ExpressionOperationEncoding.DW_OP_bit_piece:
+                return f'{self.operation.name}: size: {self.operands[0]} offset: {self.operands[1]} '
+            case ExpressionOperationEncoding.DW_OP_implicit_value:
+                byte_data = self.operands[0].hex(sep=" ", bytes_per_sep=1)
+                return f'{self.operation.name} {len(self.operands[0])} byte block: {byte_data} '
+        operands_str = operands_str = ': ' + ' '.join(str(x) for x in self.operands) if len(self.operands) > 0 else ''
         return self.operation.name + operands_str
 
     @staticmethod

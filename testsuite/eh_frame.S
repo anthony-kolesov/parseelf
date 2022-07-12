@@ -144,3 +144,192 @@ _start:
 	.cfi_escape DW_CFA_val_expression, 0x1, 0x2, DW_OP_breg(6), 0xC
 
 	.cfi_endproc
+
+.globl	expression_tests
+.type	expression_tests, @function
+expression_tests:
+	# Test different operations in expressions.
+	# The expressions are not evaluated, therefore they are semantically
+	# meaningless, the purpose is to only test that they are parsed correctly.
+	.cfi_startproc simple
+
+	# This will work only for 32-bit targets.
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 9, DW_OP_addr, 0x2, 0x4, 0x8, 0xc, 0xa4, 0x4a, 0xf0, 0xf0
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_deref
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_const1u, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_const1s, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_const2u, 0xc1, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_const2s, 0xc1, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 5, DW_OP_const4u, 0xc1, 0xc1, 0xc1, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 5, DW_OP_const4s, 0xc1, 0xc1, 0xc1, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 9, DW_OP_const8u, 0xc1, 0xc2, 0xc3, 0xc4, 0xd5, 0xd6, 0xd7, 0xd8
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 9, DW_OP_const8s, 0xc1, 0xc2, 0xc3, 0xc4, 0xd5, 0xd6, 0xd7, 0x08
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_constu, 0xc1, 0x42
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_consts, 0xc1, 0x42
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_dup
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_drop
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_over
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_pick, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_swap
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_rot
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_xderef
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_abs
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_and
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_div
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_minus
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_mod
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_mul
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_neg
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_not
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_or
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_plus
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_plus_uconst, 0xc2, 0x43
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_shl
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_shr
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_shra
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_xor
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_bra, 0xc2, 0xc1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_eq
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_ge
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_gt
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_le
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_lt
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_ne
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_skip, 0xc1, 0xc2
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_lit(0)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_lit(1)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_lit(7)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_lit(30)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_lit(31)
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_reg(0)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_reg(1)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_reg(7)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_reg(30)
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_reg(31)
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_breg(0), 0
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_breg(1), 1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_breg(7), 0x60
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_breg(30), 0x20
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_breg(31), 0x40
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_regx, 0
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_regx, 1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_regx, 10
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_regx, 31
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_regx, 0x40
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_regx, 0x84, 0x2
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_fbreg, 0
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_fbreg, 1
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_fbreg, 10
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_fbreg, 0x40
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_bregx, 0x40, 0x40
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_bregx, 0x1, 0x10
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 5, DW_OP_bregx, 0x84, 0x2, 0x84, 0x2
+
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_piece, 0xc1, 0x44
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_deref_size, 0xc5
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 2, DW_OP_xderef_size, 0xc6
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_nop
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_push_object_address
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_call2, 0xc1, 0x72
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 5, DW_OP_call4, 0xc1, 0xc2, 0xc3, 0x74
+	# Size depends on DWARF-bits.
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 5, DW_OP_call_ref, 0xc4, 0xc3, 0xc2, 0x71
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_form_tls_address
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_call_frame_cfa
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 5, DW_OP_bit_piece, 0xc1, 0x42, 0xc3, 0x44
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 4, DW_OP_implicit_value, 0x2, 0xc2, 0xc3
+	.long 0
+	.cfi_escape DW_CFA_def_cfa_expression, 1, DW_OP_stack_value
+
+	.cfi_endproc
+
