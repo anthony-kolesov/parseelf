@@ -40,7 +40,7 @@ import collections.abc
 import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
-from typing import BinaryIO, final, Iterable, Iterator, Mapping, \
+from typing import BinaryIO, final, Iterable, Iterator, \
     MutableMapping, NamedTuple, Sequence, TextIO
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
@@ -959,7 +959,7 @@ class FdeRecord:
     @staticmethod
     def read(
         sr: StreamReader,
-        cie_records: Mapping[int, CieRecord],
+        cie: CieRecord,
         entry_offset: int,
         length: int,
         post_length_offset: int,
@@ -969,7 +969,7 @@ class FdeRecord:
         """Read an FDE record from the .eh_frame.
 
         :param sr: The stream reader to read from.
-        :param cie_records: Mapping of section offsets to CIE records.
+        :param cie: Parent CIE record.
         :param entry_offset: The offset of the CIE beggining.
         :param length: The CIE size without the length field itself.
         :param post_length_offset: The offset of the CIE pointer field.
@@ -977,13 +977,6 @@ class FdeRecord:
             This is needed to handle PC-relative pointers if specified by
             augmentation.
         :param cie_ptr: The value of the CIE pointer field in the file."""
-        assert cie_ptr != 0, "FDE record can't have a zero CIE pointer field."
-        cie_abs_position = post_length_offset - cie_ptr
-        cie = cie_records[cie_abs_position]
-        assert cie_abs_position == cie.offset
-        # FDE always follows it's CIE so we don't have to try to search for
-        # CIE using the CIE pointer - we already have CIE.
-
         pc_begin_offset = sr.current_position
         # The following condition might (?) actually be false, but this
         # code assumes that `R` augmentation is always present.
@@ -1066,7 +1059,8 @@ def read_eh_frame(
             cie_records[entry_offset] = cie
             yield cie
         else:
-            yield FdeRecord.read(sr, cie_records, entry_offset, length, post_length_offset, eh_frame_offset, cie_ptr)
+            parent_cie = cie_records[post_length_offset - cie_ptr]
+            yield FdeRecord.read(sr, parent_cie, entry_offset, length, post_length_offset, eh_frame_offset, cie_ptr)
         # Set position just to ensure entry is skipped whether it was properly parsed or not.
         sr.set_abs_position(post_length_offset + length)
 
