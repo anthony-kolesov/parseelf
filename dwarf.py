@@ -359,6 +359,13 @@ class CfaInstruction(NamedTuple):
                 case _:
                     raise NotImplementedError('Unsupported call frame instruction.')
 
+    @staticmethod
+    def read(sr: StreamReader) -> Iterator['CfaInstruction']:
+        """Read a sequence of CFA instructions from a stream reader until reader's end.
+
+        This implementation doesn't consider augmentation info."""
+        yield from CfaInstruction.read_with_augmentation(sr, CieAugmentation(), 0)
+
     def objdump_format(
             self,
             fmt: TargetFormatter,
@@ -949,6 +956,64 @@ class CieRecord:
         )
 
     @staticmethod
+    def read_dwarf(
+        sr: StreamReader,
+        entry_offset: int,
+        length: int,
+        cie_id: int,
+        post_length_offset: int,
+    ) -> 'CieRecord':
+        """Read an CIE record from the .debug_frame.
+
+        In theory it would be good to merge dwarf/eh_frame implementation, the
+        main problem right now is the best way to handle augmentation and
+        information that is needed for them to work, and for no I punt this
+        issue into the future - there is an implementation that supports only
+        specific augmentations that are needed to test executables built with
+        default set of GCC flags, but not the full .eh_frame support. And then
+        there is a DWARF version that ignores augmentations and is somewhat
+        simpler because of that.
+
+        :param sr: The stream reader to read from.
+        :param entry_offset: The offset of the CIE beggining.
+        :param length: The CIE size without the length field itself.
+        :param cie_id: The value of cie_id field as read from the file.
+        :param post_length_offset: The offset of the CIE pointer field."""
+        # Note that this implements Linux .debug_frame structure, which is
+        # slightly different from .eh_frame.
+        version = sr.uint1()
+        assert version == 1, f'CIE record version should be 1, is {version}.'
+
+        augmentation_str = sr.cstring()
+        # According to spec we should ignore records with unknown augmentations
+        # but for now I just abort immediately.
+        # `S` means a signal frame and doesn't change record layout.
+        assert len(augmentation_str) == 0 or augmentation_str == 'S'
+        caf = sr.uleb128()
+        daf = sr.sleb128()
+        ra = sr.uleb128()
+
+        # Length of initial instructions field is defined as size of CIE minus
+        # already read bytes.
+        init_instr_offset = sr.current_position
+        bytes_read = init_instr_offset - post_length_offset
+        init_instr = sr.bytes(length - bytes_read)
+        init_instr_sr = StreamReader(sr.data_format, BytesIO(init_instr))
+        init_instructions = tuple(CfaInstruction.read(init_instr_sr))
+
+        return CieRecord(
+            entry_offset,
+            length,
+            cie_id,
+            version,
+            augmentation_str,
+            caf,
+            daf,
+            ra,
+            init_instructions,
+        )
+
+    @staticmethod
     def zero_record(offset: int) -> 'CieRecord':
         return CieRecord(offset, 0, 0, 0, '', 0, 0, 0, tuple())
 
@@ -1021,6 +1086,45 @@ class FdeRecord:
             instructions,
         )
 
+    @staticmethod
+    def read_dwarf(
+        sr: StreamReader,
+        cie: CieRecord,
+        entry_offset: int,
+        length: int,
+        post_length_offset: int,
+        cie_ptr: int,
+    ) -> 'FdeRecord':
+        """Read an FDE record from the .debug_frame.
+
+        :param sr: The stream reader to read from.
+        :param cie: Parent CIE record.
+        :param entry_offset: The offset of the CIE beggining.
+        :param length: The CIE size without the length field itself.
+        :param post_length_offset: The offset of the CIE pointer field.
+        :param cie_ptr: The value of the CIE pointer field in the file."""
+        pc_begin = sr.pointer()
+        pc_range = sr.pointer()
+
+        # Remember that length doesn't count the `length` fields, hence
+        # substract id_offset, instead of fde_start.
+        instr_offset = sr.current_position
+        bytes_read = instr_offset - post_length_offset
+        instr = sr.bytes(length - bytes_read)
+        instr_sr = StreamReader(sr.data_format, BytesIO(instr))
+        instructions = tuple(CfaInstruction.read(instr_sr))
+
+        return FdeRecord(
+            entry_offset,
+            length,
+            cie_ptr,
+            cie,
+            pc_begin,
+            pc_range,
+            b'',  # augmentation_data
+            instructions,
+        )
+
 
 def read_eh_frame(
     sr: StreamReader,
@@ -1065,6 +1169,54 @@ def read_eh_frame(
                 eh_frame_offset,
                 cie_ptr,
             )
+        # Set position just to ensure entry is skipped whether it was properly parsed or not.
+        sr.set_abs_position(post_length_offset + length)
+
+
+def read_dwarf_frame(
+    sr: StreamReader,
+) -> Iterator[CieRecord | FdeRecord]:
+    """Read an .debug_frame section as a sequence of CIE and FDE records.
+
+    .eh_frame is similar to DWARFv2 .debug_frame, but there are substantial
+    differences. For example CIE pointer of FDE record in .eh_frame is an offset
+    from the FDE record, while in DWARF it is an offset from the beginning of
+    the .debug_frame section.
+
+    :param sr: The stream reader for the .eh_frame section."""
+    # Mapping of offsets to CIE records. Needed because FDE records can
+    # reference any of the previous CIE records.
+    cie_records: dict[int, CieRecord] = {}
+
+    # Read length and cie_ptr fields and then call respective reader function:
+    # CIEs have a 0xffffffff cie_ptr, while FDEs have a cie_ptr that is an
+    # offset into the section. I don't think that specification in any form
+    # explicitly specifies that 0xffffffff is a "distinguished" value, rather it
+    # seems to me that since .debug_frame always starts with CIE, then the
+    # reading algorith should treat the whatever value set in the cie_id field
+    # as a distinguished for any further CIE records. But that seems like a
+    # complication, at least for this library, so I will consider that just
+    # 0xffffffff is a distinguished value, since that is what is used in DWARF
+    # specification examples and by GCC.
+    while not sr.at_eof:
+        entry_offset = sr.current_position
+        length = sr.length()
+
+        if length == 0:
+            # Null terminator CIE.
+            yield CieRecord.zero_record(entry_offset)
+            continue
+
+        post_length_offset = sr.current_position
+        cie_ptr = sr.offset()
+
+        if cie_ptr == 0xffffffff:
+            cie = CieRecord.read_dwarf(sr, entry_offset, length, cie_ptr, post_length_offset)
+            cie_records[entry_offset] = cie
+            yield cie
+        else:
+            parent_cie = cie_records[cie_ptr]
+            yield FdeRecord.read_dwarf(sr, parent_cie, entry_offset, length, post_length_offset, cie_ptr)
         # Set position just to ensure entry is skipped whether it was properly parsed or not.
         sr.set_abs_position(post_length_offset + length)
 

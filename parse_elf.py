@@ -989,10 +989,19 @@ def print_dwarf_frames(
         print(f'Contents of the {frame_section.name} section:\n')
         stream = BytesIO(elf_obj.section_content(frame_section.number))
         sr = dwarf.StreamReader(elf_obj.data_format, stream)
-        records = dwarf.read_eh_frame(sr, frame_section.header.address)
+        # I can't say I'm a fan of this `if`, but section parse functions don't
+        # have the same signature, which makes it difficult to extract common
+        # code into functions and unroll the loop without too much duplication.
+        # The quick return if the section is not found makes it even more
+        # difficult to unroll without duplication.
+        if frame_section_name == '.eh_frame':
+            records = dwarf.read_eh_frame(sr, frame_section.header.address)
+        else:
+            records = dwarf.read_dwarf_frame(sr)
         print_records(records, frame_section.header.address)
 
-    print_frame_section('.eh_frame')
+    for section_name in ('.eh_frame', '.debug_frame'):
+        print_frame_section(section_name)
 
 
 def print_dwarf_frames_interp(
@@ -1047,10 +1056,14 @@ def print_dwarf_frames_interp(
         print(f'Contents of the {frame_section.name} section:\n')
         stream = BytesIO(elf_obj.section_content(frame_section.number))
         sr = dwarf.StreamReader(elf_obj.data_format, stream)
-        records = dwarf.read_eh_frame(sr, frame_section.header.address)
-        print_records(records, frame_section.header.address)
+        if frame_section_name == '.eh_frame':
+            entries = dwarf.read_eh_frame(sr, frame_section.header.address)
+        else:
+            entries = dwarf.read_dwarf_frame(sr)
+        print_records(entries, frame_section.header.address)
 
-    print_frame_section('.eh_frame')
+    for section_name in ('.eh_frame', '.debug_frame'):
+        print_frame_section(section_name)
 
 
 def print_dwarf_str(

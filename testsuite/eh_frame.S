@@ -1,5 +1,7 @@
 #include "dwarf.S"
 
+.cfi_sections .eh_frame, .debug_frame
+
 .globl	_start
 .type	_start, @function
 _start:
