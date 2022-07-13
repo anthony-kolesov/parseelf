@@ -654,10 +654,7 @@ class ExpressionOperation(NamedTuple):
 
         :params args: Operation operands."""
         def rn(regnum: int) -> str:
-            dwname = fmt.get_dwarf_regname(regnum)
-            if dwname:
-                return f'{regnum} ({dwname})'
-            return str(regnum)
+            return f'{regnum} ({fmt.get_dwarf_regname(regnum)})'
 
         if (ExpressionOperationEncoding.DW_OP_reg0.value <= self.operation.value
            and self.operation.value <= ExpressionOperationEncoding.DW_OP_reg31.value):
