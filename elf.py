@@ -1663,3 +1663,9 @@ class Elf:
             if s.header.type == shtype:
                 yield s
         return
+
+    def find_section(self, section_name: str) -> Section | None:
+        """Search section by name.
+
+        Returns `None` if section with the specified name is not found."""
+        return next((s for s in self.sections if s.name == section_name), None)

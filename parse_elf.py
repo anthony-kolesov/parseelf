@@ -611,7 +611,7 @@ def hex_dump(
 def print_dwarf_rawline(
     elf_obj: elf.Elf,
 ) -> None:
-    debug_line = next((s for s in elf_obj.sections if s.name == '.debug_line'), None)
+    debug_line = elf_obj.find_section('.debug_line')
     if debug_line is None:
         return
     print('Raw dump of debug contents of section .debug_line:\n')
@@ -669,7 +669,7 @@ def print_dwarf_rawline(
 def print_dwarf_decodedline(
     elf_obj: elf.Elf,
 ) -> None:
-    debug_line = next((s for s in elf_obj.sections if s.name == '.debug_line'), None)
+    debug_line = elf_obj.find_section('.debug_line')
     if debug_line is None:
         return
     print('Contents of the .debug_line section:\n')
@@ -807,16 +807,16 @@ def _print_die_attribute(
 def print_dwarf_info(
     elf_obj: elf.Elf,
 ) -> None:
-    debug_info = next((s for s in elf_obj.sections if s.name == '.debug_info'), None)
+    debug_info = elf_obj.find_section('.debug_info')
     if debug_info is None:
         return
 
-    debug_str_section = next((s for s in elf_obj.sections if s.name == '.debug_str'), None)
+    debug_str_section = elf_obj.find_section('.debug_str')
     assert debug_str_section is not None
     debug_strings = elf_obj.strings(debug_str_section.number)
 
     # Read abbreviation data.
-    debug_abbrev = next((s for s in elf_obj.sections if s.name == '.debug_abbrev'), None)
+    debug_abbrev = elf_obj.find_section('.debug_abbrev')
     assert debug_abbrev is not None
     debug_abbrev_stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
     debug_abbrev_sr = dwarf.StreamReader(elf_obj.data_format, debug_abbrev_stream)
@@ -858,7 +858,7 @@ def print_dwarf_abbrev(
         for child in abbrev.children:
             print_abbrev(child)
 
-    debug_abbrev = next((s for s in elf_obj.sections if s.name == '.debug_abbrev'), None)
+    debug_abbrev = elf_obj.find_section('.debug_abbrev')
     if debug_abbrev is None:
         return
     print('Contents of the .debug_abbrev section:\n')
@@ -872,7 +872,7 @@ def print_dwarf_abbrev(
 def print_dwarf_aranges(
     elf_obj: elf.Elf,
 ) -> None:
-    debug_aranges = next((s for s in elf_obj.sections if s.name == '.debug_aranges'), None)
+    debug_aranges = elf_obj.find_section('.debug_aranges')
     if debug_aranges is None:
         return
     print(f'Contents of the {debug_aranges.name} section:\n')
@@ -982,7 +982,7 @@ def print_dwarf_frames(
         print()
 
     def print_frame_section(frame_section_name: str) -> None:
-        frame_section = next((s for s in elf_obj.sections if s.name == frame_section_name), None)
+        frame_section = elf_obj.find_section(frame_section_name)
         if frame_section is None:
             return
 
@@ -1040,7 +1040,7 @@ def print_dwarf_frames_interp(
         print()
 
     def print_frame_section(frame_section_name: str) -> None:
-        frame_section = next((s for s in elf_obj.sections if s.name == frame_section_name), None)
+        frame_section = elf_obj.find_section(frame_section_name)
         if frame_section is None:
             return
 
@@ -1056,7 +1056,7 @@ def print_dwarf_frames_interp(
 def print_dwarf_str(
     elf_obj: elf.Elf,
 ) -> None:
-    debug_str = next((s for s in elf_obj.sections if s.name == '.debug_str'), None)
+    debug_str = elf_obj.find_section('.debug_str')
     if debug_str is None:
         return
     print(f'Contents of the {debug_str.name} section:\n')
