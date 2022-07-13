@@ -913,7 +913,7 @@ def _dwarf_frame_cie_common(
     return ' '.join((
         format(cie.offset, '08x'),
         format(cie.size, bits.address_format),
-        format(0, '08x'),
+        format(cie.cie_id, '08x'),
         'CIE',
     ))
 

@@ -853,6 +853,7 @@ class CieAugmentation:
 class CieRecord:
     offset: int
     size: int
+    cie_id: int
     version: int
     augmentation: str
     code_alignment_factor: int
@@ -871,6 +872,7 @@ class CieRecord:
         sr: StreamReader,
         entry_offset: int,
         length: int,
+        cie_id: int,
         post_length_offset: int,
         eh_frame_offset: int,
     ) -> 'CieRecord':
@@ -879,6 +881,7 @@ class CieRecord:
         :param sr: The stream reader to read from.
         :param entry_offset: The offset of the CIE beggining.
         :param length: The CIE size without the length field itself.
+        :param cie_id: The value of cie_id field as read from the file.
         :param post_length_offset: The offset of the CIE pointer field.
         :param eh_frame_offset: The offset of the .eh_frame section in the file.
             This is needed to handle PC-relative pointers if specified by
@@ -886,7 +889,7 @@ class CieRecord:
         # Note that this implements Linux .eh_frame structure, which is
         # slightly different from .debug_frame.
         version = sr.uint1()
-        assert version == 1, "CIE record version is not 1."
+        assert version == 1, f'CIE record version should be 1, is {version}.'
 
         augmentation_str = sr.cstring()
         caf = sr.uleb128()
@@ -922,6 +925,7 @@ class CieRecord:
         return CieRecord(
             entry_offset,
             length,
+            cie_id,
             version,
             augmentation_str,
             caf,
@@ -934,7 +938,7 @@ class CieRecord:
 
     @staticmethod
     def zero_record(offset: int) -> 'CieRecord':
-        return CieRecord(offset, 0, 0, '', 0, 0, 0, tuple())
+        return CieRecord(offset, 0, 0, 0, '', 0, 0, 0, tuple())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1055,7 +1059,7 @@ def read_eh_frame(
         cie_ptr = sr.uint4()
 
         if cie_ptr == 0:
-            cie = CieRecord.read(sr, entry_offset, length, post_length_offset, eh_frame_offset)
+            cie = CieRecord.read(sr, entry_offset, length, cie_ptr, post_length_offset, eh_frame_offset)
             cie_records[entry_offset] = cie
             yield cie
         else:
