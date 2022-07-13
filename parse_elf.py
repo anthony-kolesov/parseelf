@@ -939,11 +939,6 @@ def _dwarf_frame_fde(
 def print_dwarf_frames(
     elf_obj: elf.Elf,
 ) -> None:
-    eh_frame = next((s for s in elf_obj.sections if s.name == '.eh_frame'), None)
-    if eh_frame is None:
-        return
-    print('Contents of the .eh_frame section:\n')
-
     def print_cie(cie: dwarf.CieRecord, fmt: dwarf.TargetFormatter) -> None:
         print()
         print(_dwarf_frame_cie_common(cie, fmt.data_format.bits))
@@ -971,27 +966,38 @@ def print_dwarf_frames(
             frame_pc = fde_cftable.current_loc()
             print('  ' + fde_instr.objdump_format(fmt, fde.cie, frame_pc))
 
-    stream = BytesIO(elf_obj.section_content(eh_frame.number))
-    target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
-    sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    for entry in dwarf.read_eh_frame(sr, eh_frame.header.address):
-        if isinstance(entry, dwarf.CieRecord):
-            if entry.is_zero_record:
-                print(f'\n{entry.offset:08x} ZERO terminator\n')
+    def print_records(
+        records: Iterable[dwarf.CieRecord | dwarf.FdeRecord],
+        section_address: int,
+    ) -> None:
+        target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
+        for entry in records:
+            if isinstance(entry, dwarf.CieRecord):
+                if entry.is_zero_record:
+                    print(f'\n{entry.offset:08x} ZERO terminator\n')
+                else:
+                    print_cie(entry, target_format)
             else:
-                print_cie(entry, target_format)
-        else:
-            print_fde(entry, target_format, eh_frame.header.address)
-    print()
+                print_fde(entry, target_format, section_address)
+        print()
+
+    def print_frame_section(frame_section_name: str) -> None:
+        frame_section = next((s for s in elf_obj.sections if s.name == frame_section_name), None)
+        if frame_section is None:
+            return
+
+        print(f'Contents of the {frame_section.name} section:\n')
+        stream = BytesIO(elf_obj.section_content(frame_section.number))
+        sr = dwarf.StreamReader(elf_obj.data_format, stream)
+        records = dwarf.read_eh_frame(sr, frame_section.header.address)
+        print_records(records, frame_section.header.address)
+
+    print_frame_section('.eh_frame')
 
 
 def print_dwarf_frames_interp(
     elf_obj: elf.Elf,
 ) -> None:
-    eh_frame = next((s for s in elf_obj.sections if s.name == '.eh_frame'), None)
-    if eh_frame is None:
-        return
-    print('Contents of the .eh_frame section:\n')
 
     def print_fde(
         fde: dwarf.FdeRecord,
@@ -1006,30 +1012,45 @@ def print_dwarf_frames_interp(
         fde_cftable.do_instruction(*fde.instructions)
         fde_cftable.objdump_print(fmt, sys.stdout)
 
-    target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
-    stream = BytesIO(elf_obj.section_content(eh_frame.number))
-    sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    cie_cftables: dict[int, dwarf.CallFrameTable] = {}
-    for entry in dwarf.read_eh_frame(sr, eh_frame.header.address):
-        if isinstance(entry, dwarf.CieRecord):
-            if entry.is_zero_record:
-                print(f'\n{entry.offset:08x} ZERO terminator\n')
+    def print_records(
+        records: Iterable[dwarf.CieRecord | dwarf.FdeRecord],
+        section_address: int,
+    ) -> None:
+        target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
+        cie_cftables: dict[int, dwarf.CallFrameTable] = {}
+        for entry in records:
+            if isinstance(entry, dwarf.CieRecord):
+                if entry.is_zero_record:
+                    print(f'\n{entry.offset:08x} ZERO terminator\n')
+                else:
+                    print()
+                    print(' '.join((
+                        _dwarf_frame_cie_common(entry, target_format.data_format.bits),
+                        f'"{entry.augmentation}"',
+                        f'cf={entry.code_alignment_factor}',
+                        f'df={entry.data_alignment_factor}',
+                        f'ra={entry.return_address_register}',
+                    )))
+                    cie_cftable = dwarf.CallFrameTable(entry)
+                    cie_cftable.do_instruction(*entry.initial_instructions)
+                    cie_cftable.objdump_print(target_format, sys.stdout)
+                    cie_cftables[entry.offset] = cie_cftable
             else:
-                print()
-                print(' '.join((
-                    _dwarf_frame_cie_common(entry, target_format.data_format.bits),
-                    f'"{entry.augmentation}"',
-                    f'cf={entry.code_alignment_factor}',
-                    f'df={entry.data_alignment_factor}',
-                    f'ra={entry.return_address_register}',
-                )))
-                cie_cftable = dwarf.CallFrameTable(entry)
-                cie_cftable.do_instruction(*entry.initial_instructions)
-                cie_cftable.objdump_print(target_format, sys.stdout)
-                cie_cftables[entry.offset] = cie_cftable
-        else:
-            print_fde(entry, cie_cftables[entry.cie.offset], target_format, eh_frame.header.address)
-    print()
+                print_fde(entry, cie_cftables[entry.cie.offset], target_format, section_address)
+        print()
+
+    def print_frame_section(frame_section_name: str) -> None:
+        frame_section = next((s for s in elf_obj.sections if s.name == frame_section_name), None)
+        if frame_section is None:
+            return
+
+        print(f'Contents of the {frame_section.name} section:\n')
+        stream = BytesIO(elf_obj.section_content(frame_section.number))
+        sr = dwarf.StreamReader(elf_obj.data_format, stream)
+        records = dwarf.read_eh_frame(sr, frame_section.header.address)
+        print_records(records, frame_section.header.address)
+
+    print_frame_section('.eh_frame')
 
 
 def print_dwarf_str(
