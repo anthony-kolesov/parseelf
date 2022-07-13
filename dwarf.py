@@ -323,13 +323,13 @@ class CfaInstruction(NamedTuple):
     def read(
         sr: StreamReader,
         augmentation_info: 'CieAugmentation',
-        stream_offset: int,
+        stream_base_address: int,
     ) -> Iterator['CfaInstruction']:
         """Read a sequence of CFA instructions from a stream reader until reader's end.
 
-        :param stream_offset: The base offset of the stream reader. This is
+        :param stream_base_address: The base address of the stream in the memory. This is
             needed to handle PC-relative pointers if specified by augmentation.
-            This must be an offset in the file, not offset in the section."""
+            This must be a memory address, not offset in the section of file."""
         while not sr.at_eof:
             b = sr.uint1()
             # Argument is inside of opcode
@@ -340,11 +340,7 @@ class CfaInstruction(NamedTuple):
                     op_values = tuple(operand_type(sr) for operand_type in instr.operand_types)
                     match instr:
                         case CfaInstructionEncoding.DW_CFA_set_loc:
-                            assert augmentation_info.fde_pointer_encoding
-                            offset = sr.current_position
-                            loc = augmentation_info.fde_pointer_encoding.read_value(sr)
-                            assert augmentation_info.fde_pointer_adjust == DW_EH_PE_Relation.pcrel
-                            loc = loc + offset + stream_offset
+                            loc = augmentation_info.read_pointer(sr, stream_base_address)
                             yield CfaInstruction(instr, (loc, ))
                         case CfaInstructionEncoding.DW_CFA_def_cfa_expression:
                             expr = tuple(ExpressionOperation.read(StreamReader(sr.data_format, BytesIO(op_values[0]))))
@@ -787,12 +783,28 @@ class DW_EH_PE_Relation(Enum):
 @dataclasses.dataclass(frozen=True)
 class CieAugmentation:
     """Container for CIE augmentation data allowed in .eh_frame."""
-    lsda_pointer_encoding: DW_EH_PE_ValueType | None = None
+    lsda_pointer_encoding: DW_EH_PE_ValueType = DW_EH_PE_ValueType.absptr
     lsda_pointer_adjust: DW_EH_PE_Relation | None = None
     personality_routine_pointer: int | None = None
     personality_routine_adjust: DW_EH_PE_Relation | None = None
-    fde_pointer_encoding: DW_EH_PE_ValueType | None = None
+    fde_pointer_encoding: DW_EH_PE_ValueType = DW_EH_PE_ValueType.absptr
     fde_pointer_adjust: DW_EH_PE_Relation | None = None
+
+    def read_pointer(self, sr: StreamReader, stream_base_address: int) -> int:
+        """Read and adjust pointer from the stream.
+
+        :param stream_address: The base address of the stream in the memory."""
+        # I think formally this assert is not fully correct - .eh_frame section
+        # might be at address 0, but I don't think this will happen in real life.
+        assert stream_base_address != 0 or self.fde_pointer_encoding == DW_EH_PE_ValueType.absptr
+        offset = sr.current_position
+        loc = self.fde_pointer_encoding.read_value(sr)
+        if self.fde_pointer_adjust is None:
+            return loc
+        elif self.fde_pointer_adjust == DW_EH_PE_Relation.pcrel:
+            return loc + offset + stream_base_address
+        else:
+            assert False
 
     @staticmethod
     def read(
@@ -813,11 +825,11 @@ class CieAugmentation:
         sr = StreamReader(data_format, BytesIO(data))
 
         # Parse augmentation data.
-        lsda_encoding: DW_EH_PE_ValueType | None = None
+        lsda_encoding = DW_EH_PE_ValueType.absptr
         lsda_adjust: DW_EH_PE_Relation | None = None
         pers_pointer: int | None = None
         pers_adjust: DW_EH_PE_Relation | None = None
-        fde_pointer_encoding: DW_EH_PE_ValueType | None = None
+        fde_pointer_encoding = DW_EH_PE_ValueType.absptr
         fde_pointer_adjust: DW_EH_PE_Relation | None = None
         for augmentatation_char in augmentation:
             match augmentatation_char:
@@ -947,16 +959,8 @@ class FdeRecord:
     size: int
     cie_ptr: int
     cie: CieRecord
-    pc_begin_offset: int
-    "Offset of pc_begin field in the stream."
     pc_begin: int
     pc_range: int
-    # The pc_begin_offset field is needed to handle the DW_EH_PE_pcrel
-    # augmentations, since the value there is relative to the location of
-    # pc_begin field itself. Alternative solution would be to pass Elf object
-    # into the `read` function so it could fully resolve the pc_begin to an
-    # effective address, but that seems like an overcomplication, since it
-    # creates a new dependency on elf module.
     augmentation_data: bytes
     instructions: Sequence[CfaInstruction]
 
@@ -981,11 +985,10 @@ class FdeRecord:
             This is needed to handle PC-relative pointers if specified by
             augmentation.
         :param cie_ptr: The value of the CIE pointer field in the file."""
-        pc_begin_offset = sr.current_position
         # The following condition might (?) actually be false, but this
         # code assumes that `R` augmentation is always present.
         assert cie.augmentation_info.fde_pointer_encoding is not None
-        pc_begin = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
+        pc_begin = cie.augmentation_info.read_pointer(sr, eh_frame_offset)
         pc_range = cie.augmentation_info.fde_pointer_encoding.read_value(sr)
 
         augmentation_sz = 0
@@ -1012,22 +1015,11 @@ class FdeRecord:
             length,
             cie_ptr,
             cie,
-            pc_begin_offset,
             pc_begin,
             pc_range,
             augmentation_data,
             instructions,
         )
-
-    def abs_pc_begin(self, section_address: int = 0) -> int:
-        """Evaluate real absolute value of PC begin based on augmentation.
-
-        :param section_address: An address of the .eh_frame section in the memory."""
-        # Meaning of pc_begin depends on CIE augmentation, but for now only one
-        # type of adjust is supported.
-        assert self.cie.augmentation_info.fde_pointer_adjust == DW_EH_PE_Relation.pcrel, \
-            'This type of DW_EH_PE relation is not supported.'
-        return section_address + self.pc_begin_offset + self.pc_begin
 
 
 def read_eh_frame(

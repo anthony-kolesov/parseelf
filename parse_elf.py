@@ -926,7 +926,7 @@ def _dwarf_frame_fde(
     """Format an FDE entry to a single line for printing.
 
     This line format is shared by frames and frames-interp formats."""
-    pc_begin = fde.abs_pc_begin(section_address)
+    pc_begin = fde.pc_begin
     return ' '.join((
         format(fde.offset, '08x'),
         format(fde.size, bits.address_format),
@@ -962,7 +962,7 @@ def print_dwarf_frames(
         if fde.augmentation_data:
             print('  Augmentation data:'.ljust(24), fde.augmentation_data.hex(bytes_per_sep=1, sep=' '))
 
-        fde_cftable = dwarf.CallFrameTable(fde.cie).copy(fde.abs_pc_begin(section_address))
+        fde_cftable = dwarf.CallFrameTable(fde.cie).copy(fde.pc_begin)
         for fde_instr in fde.instructions:
             fde_cftable.do_instruction(fde_instr)
             frame_pc = fde_cftable.current_loc()
@@ -971,7 +971,7 @@ def print_dwarf_frames(
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     target_format = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format)
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    for entry in dwarf.read_eh_frame(sr, eh_frame.header.offset):
+    for entry in dwarf.read_eh_frame(sr, eh_frame.header.address):
         if isinstance(entry, dwarf.CieRecord):
             if entry.is_zero_record:
                 print(f'\n{entry.offset:08x} ZERO terminator\n')
@@ -999,7 +999,7 @@ def print_dwarf_frames_interp(
         print()
         print(_dwarf_frame_fde(fde, fmt.data_format.bits, section_address))
 
-        fde_cftable = cftable.copy(fde.abs_pc_begin(section_address))
+        fde_cftable = cftable.copy(fde.pc_begin)
         fde_cftable.do_instruction(*fde.instructions)
         fde_cftable.objdump_print(fmt, sys.stdout)
 
@@ -1007,7 +1007,7 @@ def print_dwarf_frames_interp(
     stream = BytesIO(elf_obj.section_content(eh_frame.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     cie_cftables: dict[int, dwarf.CallFrameTable] = {}
-    for entry in dwarf.read_eh_frame(sr, eh_frame.header.offset):
+    for entry in dwarf.read_eh_frame(sr, eh_frame.header.address):
         if isinstance(entry, dwarf.CieRecord):
             if entry.is_zero_record:
                 print(f'\n{entry.offset:08x} ZERO terminator\n')
