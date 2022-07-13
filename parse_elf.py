@@ -952,7 +952,10 @@ def print_dwarf_frames(
         print('  Code alignment factor:'.ljust(24), cie.code_alignment_factor)
         print('  Data alignment factor:'.ljust(24), cie.data_alignment_factor)
         print('  Return address column:'.ljust(24), cie.return_address_register)
-        print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex(bytes_per_sep=1, sep=' '))
+        if len(cie.augmentation_data):
+            print('  Augmentation data:'.ljust(24), cie.augmentation_data.hex(bytes_per_sep=1, sep=' '))
+        else:
+            print()
         for cfinstr in cie.initial_instructions:
             print('  ' + cfinstr.objdump_format(fmt, cie, 0))
 
