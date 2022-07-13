@@ -320,7 +320,7 @@ class CfaInstruction(NamedTuple):
     operands: tuple
 
     @staticmethod
-    def read(
+    def read_with_augmentation(
         sr: StreamReader,
         augmentation_info: 'CieAugmentation',
         stream_base_address: int,
@@ -880,7 +880,7 @@ class CieRecord:
         return self.size == 0
 
     @staticmethod
-    def read(
+    def read_eh_frame(
         sr: StreamReader,
         entry_offset: int,
         length: int,
@@ -928,7 +928,7 @@ class CieRecord:
         bytes_read = init_instr_offset - post_length_offset
         init_instr = sr.bytes(length - bytes_read)
         init_instr_sr = StreamReader(sr.data_format, BytesIO(init_instr))
-        init_instructions = tuple(CfaInstruction.read(
+        init_instructions = tuple(CfaInstruction.read_with_augmentation(
             init_instr_sr,
             cie_augmentation,
             eh_frame_offset + init_instr_offset,
@@ -965,7 +965,7 @@ class FdeRecord:
     instructions: Sequence[CfaInstruction]
 
     @staticmethod
-    def read(
+    def read_eh_frame(
         sr: StreamReader,
         cie: CieRecord,
         entry_offset: int,
@@ -1004,7 +1004,7 @@ class FdeRecord:
         bytes_read = instr_offset - post_length_offset
         instr = sr.bytes(length - bytes_read)
         instr_sr = StreamReader(sr.data_format, BytesIO(instr))
-        instructions = tuple(CfaInstruction.read(
+        instructions = tuple(CfaInstruction.read_with_augmentation(
             instr_sr,
             cie.augmentation_info,
             eh_frame_offset + instr_offset,
@@ -1051,12 +1051,20 @@ def read_eh_frame(
         cie_ptr = sr.uint4()
 
         if cie_ptr == 0:
-            cie = CieRecord.read(sr, entry_offset, length, cie_ptr, post_length_offset, eh_frame_offset)
+            cie = CieRecord.read_eh_frame(sr, entry_offset, length, cie_ptr, post_length_offset, eh_frame_offset)
             cie_records[entry_offset] = cie
             yield cie
         else:
             parent_cie = cie_records[post_length_offset - cie_ptr]
-            yield FdeRecord.read(sr, parent_cie, entry_offset, length, post_length_offset, eh_frame_offset, cie_ptr)
+            yield FdeRecord.read_eh_frame(
+                sr,
+                parent_cie,
+                entry_offset,
+                length,
+                post_length_offset,
+                eh_frame_offset,
+                cie_ptr,
+            )
         # Set position just to ensure entry is skipped whether it was properly parsed or not.
         sr.set_abs_position(post_length_offset + length)
 
