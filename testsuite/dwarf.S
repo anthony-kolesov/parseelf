@@ -1,3 +1,5 @@
+# Declarations of DWARF constants.
+
 #define DW_CFA_advance_loc(delta) (0x40 + delta)
 #define DW_CFA_offset (0x80)
 #define DW_CFA_restore (0xc0)

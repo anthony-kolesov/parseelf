@@ -1,3 +1,5 @@
+# Frame unwinding tests written using GAS CFI directives.
+
 #include "dwarf.S"
 
 .cfi_sections .eh_frame, .debug_frame
@@ -359,4 +361,3 @@ expression_tests:
 	.cfi_escape DW_CFA_def_cfa_expression, 3, DW_OP_reinterpret, 0xC1, 0x42
 
 	.cfi_endproc
-
