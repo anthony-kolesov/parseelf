@@ -949,6 +949,9 @@ def print_dwarf_frames(
         print(_dwarf_frame_cie_common(cie, fmt.data_format.bits))
         print('  Version:'.ljust(24), cie.version)
         print('  Augmentation:'.ljust(24), f'"{cie.augmentation}"')
+        if cie.version >= 4:
+            print('  Pointer Size:'.ljust(24), cie.address_size)
+            print('  Segment Size:'.ljust(24), cie.segment_selector_size)
         print('  Code alignment factor:'.ljust(24), cie.code_alignment_factor)
         print('  Data alignment factor:'.ljust(24), cie.data_alignment_factor)
         print('  Return address column:'.ljust(24), cie.return_address_register)

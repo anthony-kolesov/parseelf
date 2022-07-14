@@ -873,6 +873,8 @@ class CieRecord:
     cie_id: int
     version: int
     augmentation: str
+    address_size: int
+    segment_selector_size: int
     code_alignment_factor: int
     data_alignment_factor: int
     return_address_register: int
@@ -913,7 +915,7 @@ class CieRecord:
         augmentation_str = sr.cstring()
         caf = sr.uleb128()
         daf = sr.sleb128()
-        ra = sr.uleb128()
+        ra = sr.uint1()
 
         if 'z' in augmentation_str:
             augmentation_sz = sr.uleb128()
@@ -947,6 +949,10 @@ class CieRecord:
             cie_id,
             version,
             augmentation_str,
+            # In theory it might be better to use size from FDE pointer encoding
+            # in augmentation info, however it is useless if encoding is leb128.
+            sr.data_format.bits.address_size,
+            0,  # Segment selector size is not supported.
             caf,
             daf,
             ra,
@@ -983,7 +989,7 @@ class CieRecord:
         # Note that this implements .debug_frame structure, which is
         # slightly different from .eh_frame.
         version = sr.uint1()
-        if version != 1:
+        if not (version == 1 or 3 <= version <= 4):
             logging.warn('Encountered unknown CIE version: %u', version)
             return None
 
@@ -992,9 +998,18 @@ class CieRecord:
         # but for now I just abort immediately.
         # `S` means a signal frame and doesn't change record layout.
         assert len(augmentation_str) == 0 or augmentation_str == 'S'
+
+        if version >= 4:
+            address_size = sr.uint1()
+            segment_selector_size = sr.uint1()
+        else:
+            # Inherit size from the ELF file.
+            address_size = sr.data_format.bits.address_size
+            segment_selector_size = 0
+
         caf = sr.uleb128()
         daf = sr.sleb128()
-        ra = sr.uleb128()
+        ra = sr.uleb128() if version >= 3 else sr.uint1()
 
         # Length of initial instructions field is defined as size of CIE minus
         # already read bytes.
@@ -1010,6 +1025,8 @@ class CieRecord:
             cie_id,
             version,
             augmentation_str,
+            address_size,
+            segment_selector_size,
             caf,
             daf,
             ra,
@@ -1019,7 +1036,7 @@ class CieRecord:
 
     @staticmethod
     def zero_record(offset: int) -> 'CieRecord':
-        return CieRecord(offset, 0, 0, 0, '', 0, 0, 0, tuple())
+        return CieRecord(offset, 0, 0, 0, '', 0, 0, 0, 0, 0, tuple())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1107,8 +1124,8 @@ class FdeRecord:
         :param length: The CIE size without the length field itself.
         :param post_length_offset: The offset of the CIE pointer field.
         :param cie_ptr: The value of the CIE pointer field in the file."""
-        pc_begin = sr.pointer()
-        pc_range = sr.pointer()
+        pc_begin = sr.uint(cie.address_size)
+        pc_range = sr.uint(cie.address_size)
 
         # Remember that length doesn't count the `length` fields, hence
         # substract id_offset, instead of fde_start.
