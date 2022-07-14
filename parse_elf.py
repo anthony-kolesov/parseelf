@@ -900,6 +900,11 @@ def print_dwarf_aranges(
     print()
 
 
+def _offset_format(is_dwarf32: bool) -> str:
+    """HEX format to print DWARF stream offset."""
+    return '08x' if is_dwarf32 else '016x'
+
+
 def _format_address_range(start: int, end: int, bits: elf.ElfClass) -> str:
     """Format an address range as {start}..{end}"""
     return f'{start:{bits.address_format}}..{end:{bits.address_format}}'
@@ -913,7 +918,7 @@ def _dwarf_frame_cie_common(
     return ' '.join((
         format(cie.offset, '08x'),
         format(cie.size, bits.address_format),
-        format(cie.cie_id, '08x'),
+        format(cie.cie_id, _offset_format(cie.is_dwarf32)),
         'CIE',
     ))
 
@@ -930,7 +935,7 @@ def _dwarf_frame_fde(
     return ' '.join((
         format(fde.offset, '08x'),
         format(fde.size, bits.address_format),
-        format(fde.cie_ptr, '08x'),
+        format(fde.cie_ptr, _offset_format(fde.cie.is_dwarf32)),
         f'FDE cie={fde.cie.offset:08x}',
         f'pc={_format_address_range(pc_begin, pc_begin + fde.pc_range, bits)}',
     ))

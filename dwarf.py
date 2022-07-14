@@ -879,6 +879,8 @@ class CieRecord:
     initial_instructions: Sequence[CfaInstruction]
     augmentation_data: bytes = b''
     augmentation_info: CieAugmentation = CieAugmentation()
+    is_dwarf32: bool = False
+    """Whether the source record was 32bit or 64bit DWARF."""
 
     @property
     def is_zero_record(self) -> bool:
@@ -951,6 +953,7 @@ class CieRecord:
             init_instructions,
             augmentation_data,
             cie_augmentation,
+            is_dwarf32=sr.is_dwarf32,
         )
 
     @staticmethod
@@ -1011,6 +1014,7 @@ class CieRecord:
             daf,
             ra,
             init_instructions,
+            is_dwarf32=sr.is_dwarf32,
         )
 
     @staticmethod
