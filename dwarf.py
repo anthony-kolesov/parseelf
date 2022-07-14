@@ -234,15 +234,15 @@ class StreamReader:
 
 
 class TargetFormatter:
-    """A class to combine data format and architecture information for printing."""
+    """A class to combine pointer format and architecture information for printing."""
 
     def __init__(
         self,
         arch: ElfMachineType,
-        data_format: DataFormat,
+        pointer_size: int,
     ) -> None:
-        self.__df = data_format
         self.__dw_regs = _dwarf_register_names.get(arch, {})
+        self.__pointer_size = pointer_size
 
     def get_dwarf_regname(self, regnum: int) -> str:
         """Get a DWARF register name for the given register name."""
@@ -262,17 +262,17 @@ class TargetFormatter:
             return 'r' + str(regnum)
 
     @property
-    def data_format(self) -> DataFormat:
-        return self.__df
+    def pointer_size(self) -> int:
+        return self.__pointer_size
 
     @property
     def pointer_format(self) -> str:
         """Return a format string for pointers in this architecture."""
-        return self.__df.bits.address_format
+        return f'0{self.pointer_char_width}x'
 
     @property
     def pointer_char_width(self) -> int:
-        return self.__df.bits.address_string_width
+        return self.__pointer_size * 2
 
 
 #
