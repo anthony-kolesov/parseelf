@@ -40,8 +40,9 @@ import collections.abc
 import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
+import logging
 from typing import BinaryIO, final, Iterable, Iterator, \
-    MutableMapping, NamedTuple, Sequence, TextIO
+    MutableMapping, NamedTuple, Optional, Sequence, TextIO
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType
 
@@ -959,7 +960,7 @@ class CieRecord:
         length: int,
         cie_id: int,
         post_length_offset: int,
-    ) -> 'CieRecord':
+    ) -> Optional['CieRecord']:
         """Read an CIE record from the .debug_frame.
 
         In theory it would be good to merge dwarf/eh_frame implementation, the
@@ -976,10 +977,12 @@ class CieRecord:
         :param length: The CIE size without the length field itself.
         :param cie_id: The value of cie_id field as read from the file.
         :param post_length_offset: The offset of the CIE pointer field."""
-        # Note that this implements Linux .debug_frame structure, which is
+        # Note that this implements .debug_frame structure, which is
         # slightly different from .eh_frame.
         version = sr.uint1()
-        assert version == 1, f'CIE record version should be 1, is {version}.'
+        if version != 1:
+            logging.warn('Encountered unknown CIE version: %u', version)
+            return None
 
         augmentation_str = sr.cstring()
         # According to spec we should ignore records with unknown augmentations
@@ -1207,13 +1210,15 @@ def read_dwarf_frame(
         post_length_offset = sr.current_position
         cie_ptr = sr.offset()
 
-        if cie_ptr == 0xffffffff:
+        if (sr.is_dwarf32 and cie_ptr == 0xffffffff) or cie_ptr == 0xffffffffffffffff:
             cie = CieRecord.read_dwarf(sr, entry_offset, length, cie_ptr, post_length_offset)
-            cie_records[entry_offset] = cie
-            yield cie
+            if cie is not None:
+                cie_records[entry_offset] = cie
+                yield cie
         else:
-            parent_cie = cie_records[cie_ptr]
-            yield FdeRecord.read_dwarf(sr, parent_cie, entry_offset, length, post_length_offset, cie_ptr)
+            parent_cie = cie_records.get(cie_ptr, None)
+            if parent_cie is not None:
+                yield FdeRecord.read_dwarf(sr, parent_cie, entry_offset, length, post_length_offset, cie_ptr)
         # Set position just to ensure entry is skipped whether it was properly parsed or not.
         sr.set_abs_position(post_length_offset + length)
 
