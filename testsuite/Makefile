@@ -6,7 +6,7 @@ READELF := readelf
 # Using -gstrict-dwarf to disable GNU extensions.
 GFLAGS := -g -gstrict-dwarf
 
-TESTS := frame-asm-directives test1 frame
+TESTS := frame-asm-directives test1 frame debug_info
 
 .SECONDARY:
 
