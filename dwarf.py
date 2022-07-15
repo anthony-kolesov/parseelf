@@ -1432,6 +1432,8 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
             # Register_rules
             case CfaInstructionEncoding.DW_CFA_undefined:
                 return self.__set_rule(current_row, args[0], RegisterRule())
+            case CfaInstructionEncoding.DW_CFA_same_value:
+                return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction))
             case (CfaInstructionEncoding.DW_CFA_offset |
                   CfaInstructionEncoding.DW_CFA_offset_extended |
                   CfaInstructionEncoding.DW_CFA_offset_extended_sf):
@@ -1440,8 +1442,6 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
                     args[0],
                     RegisterRule(instr.instruction, offset=args[1] * self.__cie.data_alignment_factor)
                 )
-            case CfaInstructionEncoding.DW_CFA_register:
-                return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, reg=args[1]))
             case (CfaInstructionEncoding.DW_CFA_val_offset |
                   CfaInstructionEncoding.DW_CFA_val_offset_sf):
                 return self.__set_rule(
@@ -1449,8 +1449,8 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
                     args[0],
                     RegisterRule(instr.instruction, offset=args[1] * self.__cie.data_alignment_factor)
                 )
-            case CfaInstructionEncoding.DW_CFA_same_value:
-                return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction))
+            case CfaInstructionEncoding.DW_CFA_register:
+                return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, reg=args[1]))
             case CfaInstructionEncoding.DW_CFA_expression:
                 return self.__set_rule(current_row, args[0], RegisterRule(instr.instruction, expression=args[1]))
             case CfaInstructionEncoding.DW_CFA_val_expression:
