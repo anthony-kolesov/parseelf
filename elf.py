@@ -905,14 +905,22 @@ class StringTable(collections.abc.Iterable[tuple[int, str]]):
     _data: bytes
     """The section content."""
 
-    def __init__(
-        self,
+    @staticmethod
+    def read(
         stream: BinaryIO,
         string_table_section: SectionHeader,
-    ) -> None:
+    ) -> 'StringTable':
+        """Read the strings section from the ELF file."""
         stream.seek(string_table_section.offset)
-        self._data = stream.read(string_table_section.size)
-        assert self._data
+        buffer = stream.read(string_table_section.size)
+        return StringTable(buffer)
+
+    def __init__(
+        self,
+        buffer: bytes,
+    ) -> None:
+        assert buffer
+        self._data = buffer
 
     def get(self, offset: int) -> str:
         """Get a string from the table starting at the specified offset.
@@ -1493,7 +1501,7 @@ class Elf:
         # Sections names. I wander how realistic it is to have a file without
         # such section? Anyway, though, this library is not supposed to cover
         # every possible case.
-        name_table = StringTable(
+        name_table = StringTable.read(
             stream,
             self.section_headers[self.file_header.section_header_names_index],
         )
@@ -1533,12 +1541,12 @@ class Elf:
         raise ValueError(f'Unknown section name `{section_name_or_num}`')
 
     def strings(self, section_number: int) -> StringTable:
-        return StringTable(self.__stream, self.section_headers[section_number])
+        return StringTable.read(self.__stream, self.section_headers[section_number])
 
     def symbols(self, section_number: int) -> Iterable[Symbol]:
         section = self.section_headers[section_number]
         name_section = self.section_headers[section.link]
-        name_table = StringTable(self.__stream, name_section)
+        name_table = StringTable.read(self.__stream, name_section)
         syms = SymbolTableEntry.read(self.section_content(section_number), self.data_format)
         # Is there a VERSYM section that links to this section?
         versym_sh = next((

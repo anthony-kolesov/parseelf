@@ -561,7 +561,7 @@ def string_dump(
         section_name = elf_obj.section_names[section_num]
         section = elf_obj.section_headers[section_num]
         print(f"\nString dump of section '{section_name}':")
-        for offset, s in elf.StringTable(elf_file, section):
+        for offset, s in elf.StringTable.read(elf_file, section):
             print(f'  [{offset:6x}]  {s}')
         print()
 
@@ -811,9 +811,13 @@ def print_dwarf_info(
     if debug_info is None:
         return
 
+    # .debug_str might be absent, if .debug_info doesn't reference it.
+    # Pass an empty table in this case.
     debug_str_section = elf_obj.find_section('.debug_str')
-    assert debug_str_section is not None
-    debug_strings = elf_obj.strings(debug_str_section.number)
+    if debug_str_section is not None:
+        debug_strings = elf_obj.strings(debug_str_section.number)
+    else:
+        debug_strings = elf.StringTable(b'\0')
 
     # Read abbreviation data.
     debug_abbrev = elf_obj.find_section('.debug_abbrev')
