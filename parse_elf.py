@@ -644,26 +644,31 @@ def print_dwarf_rawline(
             print(' The Directory Table is empty.')
         print()
 
-        print(f' The File Name Table (offset {line_prog.file_table_offset:#x}):')
-        print('  Entry\tDir\tTime\tSize\tName')
-        for i, file in enumerate(line_prog.files, start=1):
-            print('\t'.join((
-                f'  {i}',
-                str(file.directory_index),
-                str(file.modification_time),
-                str(file.file_size),
-                file.name,
-            )))
+        if len(line_prog.files):
+            print(f' The File Name Table (offset {line_prog.file_table_offset:#x}):')
+            print('  Entry\tDir\tTime\tSize\tName')
+            for i, file in enumerate(line_prog.files, start=1):
+                print('\t'.join((
+                    f'  {i}',
+                    str(file.directory_index),
+                    str(file.modification_time),
+                    str(file.file_size),
+                    file.name,
+                )))
+        else:
+            print(' The File Name Table is empty.')
         print()
 
-        print(' Line Number Statements:')
-        stateMachine = dwarf.LineNumberStateMachine(line_prog)
-        for lns in line_prog.statements:
-            description = stateMachine.do_statement(lns)
-            print(f'  [{lns.offset:#010x}]  {description}')
-        print()
-
-        print()
+        if len(line_prog.statements):
+            print(' Line Number Statements:')
+            stateMachine = dwarf.LineNumberStateMachine(line_prog)
+            for lns in line_prog.statements:
+                description = stateMachine.do_statement(lns)
+                print(f'  [{lns.offset:#010x}]  {description}')
+            print()
+            print()
+        else:
+            print(' No Line Number Statements.')
 
 
 def print_dwarf_decodedline(
@@ -678,6 +683,16 @@ def print_dwarf_decodedline(
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     colw = (36, 11, 19, 7, 7)
     for line_prog in dwarf.LineNumberProgram.read(sr):
+        # Quick exit if there is no file table, because further code requires
+        # at least one file to be present.
+        if len(line_prog.files) == 0:
+            # The message says "directory table", but binutils prints it when
+            # file table is not present.
+            print('CU: No directory table')
+            print('CU: Empty file name table')
+            print()
+            continue
+
         stateMachine = dwarf.LineNumberStateMachine(line_prog)
         for lns in line_prog.statements:
             stateMachine.do_statement(lns)
