@@ -2013,6 +2013,22 @@ class LanguageEncoding(Enum):
     DW_LANG_hi_user = (0xffff, 'hi_user')
 
 
+class IdCaseEncoding(Enum):
+    human_name: str
+
+    def __new__(cls, value: int, human_name: str = ''):
+        assert len(human_name)
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.human_name = human_name
+        return obj
+
+    DW_ID_case_sensitive = (0x00, 'case_sensitive')
+    DW_ID_up_case = (0x01, 'up_case')
+    DW_ID_down_case = (0x02, 'down_case')
+    DW_ID_case_insensitive = (0x03, 'case_insensitive')
+
+
 class TagEncoding(Enum):
     DW_TAG_array_type = 0x01
     DW_TAG_class_type = 0x02

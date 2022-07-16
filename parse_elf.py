@@ -4,10 +4,11 @@
 # SPDX-License-Identifier: MIT
 
 from argparse import ArgumentParser
+from functools import partial
 from io import BytesIO
 from pathlib import Path
 import sys
-from typing import Any, cast, Iterable, Sequence
+from typing import Any, Callable, cast, Iterable, Sequence
 
 import dwarf
 import elf
@@ -732,16 +733,16 @@ def _format_die_attribute_value(
     cu: dwarf.CompilationUnit,
     debug_strings: elf.StringTable,
 ) -> str:
-    def attribute_type_formatting(value: int) -> str:
-        return f'{value}\t({dwarf.AttributeTypeEncoding(value).human_name})'
+    # A formatter for attributes that use an Enum that has a 'human_name' attribute.
+    def human_name(typ: type, value: int, /, attr_name: str = 'human_name') -> str:
+        return f'{value}\t({getattr(typ(value), attr_name)})'
 
-    def language_type_formatting(value: int) -> str:
-        return f'{value}\t({dwarf.LanguageEncoding(value).human_name})'
-
-    attr_formatting = {
+    attr_formatting: dict[dwarf.AttributeEncoding, Callable[[int], str]] = {
         dwarf.AttributeEncoding.DW_AT_high_pc: lambda a: format(a, '#x'),
-        dwarf.AttributeEncoding.DW_AT_language: language_type_formatting,
-        dwarf.AttributeEncoding.DW_AT_encoding: attribute_type_formatting,
+        dwarf.AttributeEncoding.DW_AT_language: partial(human_name, dwarf.LanguageEncoding),
+        dwarf.AttributeEncoding.DW_AT_encoding: partial(human_name, dwarf.AttributeTypeEncoding),
+        dwarf.AttributeEncoding.DW_AT_identifier_case: partial(human_name, dwarf.IdCaseEncoding),
+        dwarf.AttributeEncoding.DW_AT_loclists_base: lambda a: f'{a:#x} (location list)',
     }
 
     def strp_formatting(value: int) -> str:
