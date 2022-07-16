@@ -847,6 +847,8 @@ def print_dwarf_info(
         print(f'  Compilation Unit @ offset {cu.offset:#x}:')
         print(f'   Length:        {cu.length:#x} ({"32" if cu.is_dwarf32 else "64"}-bit)')
         print(f'   Version:       {cu.version}')
+        if cu.version >= 5:
+            print(f'   Unit Type:     {cu.unit_type.name} ({cu.unit_type.value})')
         print(f'   Abbrev Offset: {cu.debug_abbrev_offset:#x}')
         print(f'   Pointer Size:  {cu.address_size}')
         for die in cu.die_entries:

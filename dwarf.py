@@ -2248,6 +2248,15 @@ class FormEncoding(Enum):
     DW_FORM_ref_sig8 = (0x20, StreamReader.uint8)
 
 
+class UnitTypeEncoding(Enum):
+    DW_UT_compile = 0x01
+    DW_UT_type = 0x02
+    DW_UT_partial = 0x03
+    DW_UT_skeleton = 0x04
+    DW_UT_split_compile = 0x05
+    DW_UT_split_type = 0x06
+
+
 @dataclasses.dataclass(frozen=True)
 class DieAttributeValue:
     """A representation of a single attribute value in DIE."""
@@ -2308,17 +2317,18 @@ class DebugInformationEntry:
         while not sr.at_eof:
             die_offset = sr.current_position
             abbrev_number = sr.uleb128()
-            if abbrev_number == 0 and level > 0:
-                # A null entry indicates and end of a children-sequence.
-                # After yielding it, reduce level by one.
-                yield DebugInformationEntry(
-                    abbrev_number,
-                    0,
-                    tuple(),
-                    die_offset,
-                    level,
-                )
-                level -= 1
+            if abbrev_number == 0:
+                if level > 0:
+                    # A null entry indicates and end of a children-sequence.
+                    # After yielding it, reduce level by one.
+                    yield DebugInformationEntry(
+                        abbrev_number,
+                        0,
+                        tuple(),
+                        die_offset,
+                        level,
+                    )
+                    level -= 1
                 continue
             if abbrev_number > len(abbreviations):
                 break
@@ -2341,6 +2351,7 @@ class CompilationUnit:
     length: int
     is_dwarf32: bool
     version: int
+    unit_type: UnitTypeEncoding
     debug_abbrev_offset: int
     address_size: int
     die_entries: Sequence[DebugInformationEntry]
@@ -2364,10 +2375,16 @@ class CompilationUnit:
 
             cu_offset = sr.current_position
             version = sr.uint2()
-            assert version == 4, "Only DWARF v4 .debug_info is supported."
+            assert version in (4, 5), 'Only DWARF v4 and v5 .debug_info are supported.'
 
-            debug_abbrev_offset = sr.offset()
-            address_size = sr.uint1()
+            if version <= 4:
+                unit_type = UnitTypeEncoding.DW_UT_compile  # Not available pre-v5
+                debug_abbrev_offset = sr.offset()
+                address_size = sr.uint1()
+            else:
+                unit_type = UnitTypeEncoding(sr.uint1())
+                address_size = sr.uint1()
+                debug_abbrev_offset = sr.offset()
 
             def flatten(a: AbbreviationDeclaration) -> Iterator[AbbreviationDeclaration]:
                 """Flatten a tree of abbreviation declarations into a single-level iterator."""
@@ -2389,6 +2406,7 @@ class CompilationUnit:
                 length,
                 sr.is_dwarf32,
                 version,
+                unit_type,
                 debug_abbrev_offset,
                 address_size,
                 die_entries,
