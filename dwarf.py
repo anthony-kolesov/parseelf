@@ -2262,6 +2262,29 @@ class FormEncoding(Enum):
     DW_FORM_exprloc = (0x18, StreamReader.block)
     DW_FORM_flag_present = (0x19, lambda _: 1)
     DW_FORM_ref_sig8 = (0x20, StreamReader.uint8)
+    # DWARFv5
+    DW_FORM_strx = (0x1a, StreamReader.uleb128)
+    DW_FORM_addrx = (0x1b, StreamReader.uleb128)
+    DW_FORM_ref_sup4 = (0x1c, StreamReader.uint4)
+    DW_FORM_strp_sup = (0x1d, StreamReader.offset)
+    # 16-byte integers not supported.
+    # DW_FORM_data16 = (0x1e, StreamReader.uint16)
+    DW_FORM_line_strp = (0x1f, StreamReader.offset)
+    # Not supported yet.
+    # DW_FORM_implicit_const = 0x21
+    DW_FORM_loclistx = (0x22, StreamReader.uleb128)
+    DW_FORM_rnglistx = (0x23, StreamReader.uleb128)
+    DW_FORM_ref_sup8 = (0x24, StreamReader.uint8)
+    DW_FORM_strx1 = (0x25, StreamReader.uint1)
+    DW_FORM_strx2 = (0x26, StreamReader.uint2)
+    # 3-byte integers not supported.
+    # DW_FORM_strx3 = (0x27, StreamReader.uint)
+    DW_FORM_strx4 = (0x28, StreamReader.uint4)
+    DW_FORM_addrx1 = (0x29, StreamReader.uint1)
+    DW_FORM_addrx2 = (0x2a, StreamReader.uint2)
+    # 3-byte integers not supported.
+    # DW_FORM_addrx3 = (0x2b, StreamReader.uint)
+    DW_FORM_addrx4 = (0x2c, StreamReader.uint4)
 
 
 class UnitTypeEncoding(Enum):
