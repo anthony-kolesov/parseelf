@@ -41,10 +41,12 @@ import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
 import logging
-from typing import BinaryIO, final, Iterable, Iterator, \
-    MutableMapping, NamedTuple, Optional, Sequence, TextIO
+from typing import BinaryIO, final, Iterable, Iterator, Literal, \
+    MutableMapping, NamedTuple, Optional, Sequence, TextIO, TypeVar
 
-from elf import align_up, DataFormat, ElfClass, ElfMachineType
+from elf import align_up, DataFormat, ElfClass, ElfMachineType, StringTable
+
+_T = TypeVar('_T')
 
 
 class StreamReader:
@@ -201,6 +203,15 @@ class StreamReader:
             return self.uint4()
         else:
             return self.uint8()
+
+    def read_until(
+        self,
+        end_position: int,
+        reader_func: collections.abc.Callable[['StreamReader'], _T],
+    ) -> Iterable[_T]:
+        """Read values from the stream until reaching a certain position."""
+        while self.current_position < end_position:
+            yield reader_func(self)
 
     @property
     def current_position(self) -> int:
@@ -2556,3 +2567,71 @@ class ArangeEntry:
                 descriptors,
             )
             sr.set_abs_position(end_pos)
+
+
+#
+# .debug_str_offsets
+#
+class StringOffsetEntry(NamedTuple):
+    idx: int
+    offset: int
+    string: str
+
+
+@dataclasses.dataclass(frozen=True)
+class StringOffsetsTable:
+    """A representation of .debug_str_offsets contents.
+
+    Stores an array of offsets into .debug_str section."""
+
+    offsets: Sequence[int]
+    strings: StringTable
+    table_length_in_bytes: int
+    version: int
+    header_length: int
+    item_size: Literal[4, 8]
+
+    def get(self, str_offsets_base: int, index: int) -> str:
+        """Return a string for the specified str_offset base and index.
+
+        As per specification str_offsets_base is the offset of the zero-index
+        entry. Because bytestream contains a header, this base itself is never
+        zero, at least 8 byte for DWARF32 to accound for length and header, 16
+        for DWARF64."""
+        # Subtract header length from the str_offset base, then it can be divided by the item size.
+        str_offsets_base -= self.header_length
+        str_offset = self.offsets[str_offsets_base // self.item_size + index]
+        return self.strings[str_offset]
+
+    def __iter__(self) -> Iterator[StringOffsetEntry]:
+        for index, offset in enumerate(self.offsets):
+            yield StringOffsetEntry(index, offset, self.strings[offset])
+
+    def __len__(self) -> int:
+        return len(self.offsets)
+
+    @staticmethod
+    def read(sr: StreamReader, strings: StringTable) -> 'StringOffsetsTable':
+        """Read the string offsets table.
+
+        `sr` is the stream reader from which to read the offsets table.
+        `strings` is the strings table into which the offset table points to.
+
+        It is assumed that stream reader contains exactly one string offset table,
+        since it seems that this is what is assumed by the DWARFv5 standard."""
+        length = sr.length()
+        end_position = sr.current_position + length
+        version = sr.uint2()
+        if version != 5:
+            logging.error('.debug_str_offset contains entry of unsupported version %s', version)
+        assert version == 5
+        sr.uint2()  # padding
+        header_length = sr.current_position
+        item_size: Literal[4, 8] = 4 if sr.is_dwarf32 else 8
+        offsets = tuple(sr.read_until(end_position, StreamReader.offset))
+        return StringOffsetsTable(offsets, strings, length, version, header_length, item_size)
+
+    @staticmethod
+    def empty(strings: StringTable) -> 'StringOffsetsTable':
+        """Return a string offset table that has no offsets."""
+        return StringOffsetsTable(tuple(), strings, 0, 5, 0, 4)

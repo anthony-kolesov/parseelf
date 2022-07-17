@@ -98,6 +98,7 @@ def create_parser() -> ArgumentParser:
             'frames',
             'frames-interp',
             'str',
+            'str-offsets',
         ),
         action='append',
     )
@@ -1108,6 +1109,25 @@ def print_dwarf_str(
     print()
 
 
+def print_dwarf_str_offsets(
+    elf_obj: elf.Elf,
+) -> None:
+    debug_str = elf_obj.find_section('.debug_str')
+    debug_str_offsets = elf_obj.find_section('.debug_str_offsets')
+    if debug_str_offsets is None or debug_str is None:
+        return
+    print(f'Contents of the {debug_str_offsets.name} section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_str_offsets.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    strings = elf_obj.strings(debug_str.number)
+    str_offsets = dwarf.StringOffsetsTable.read(sr, strings)
+    print(f'    Length: {str_offsets.table_length_in_bytes:#x}')
+    print(f'    Version: {str_offsets.version:#x}')
+    print('       Index   Offset [String]')
+    for index, offset, string in str_offsets:
+        print(f'{index:12} {offset:8x} {string}')
+
+
 if __name__ == "__main__":
     parser = create_parser()
     args = cast(Arguments, parser.parse_args())
@@ -1169,5 +1189,7 @@ if __name__ == "__main__":
             print_dwarf_decodedline(elf_obj)
         if 'str' in args.dwarf:
             print_dwarf_str(elf_obj)
+        if 'str-offsets' in args.dwarf:
+            print_dwarf_str_offsets(elf_obj)
 
     elf_file.close()
