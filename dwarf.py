@@ -2387,7 +2387,7 @@ class DebugInformationEntry:
             attributes = tuple(DieAttributeValue.read(sr, abbreviation.attributes))
             yield DebugInformationEntry(
                 abbrev_number,
-                TagEncoding(abbreviation.tag),
+                abbreviation.tag,
                 attributes,
                 die_offset,
                 level,
@@ -2507,7 +2507,7 @@ class AbbreviationAttribute:
 @dataclasses.dataclass(frozen=True)
 class AbbreviationDeclaration:
     code: int
-    tag: int
+    tag: TagEncoding
     has_children: bool
     attributes: Sequence[AbbreviationAttribute]
     children: Sequence['AbbreviationDeclaration']
@@ -2533,7 +2533,7 @@ class AbbreviationDeclaration:
 
             yield AbbreviationDeclaration(
                 code,
-                tag,
+                TagEncoding(tag),
                 has_children,
                 attributes,
                 children,
