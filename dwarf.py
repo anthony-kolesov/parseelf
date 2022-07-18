@@ -2041,6 +2041,7 @@ class IdCaseEncoding(Enum):
 
 
 class TagEncoding(Enum):
+    invalid = 0
     DW_TAG_array_type = 0x01
     DW_TAG_class_type = 0x02
     DW_TAG_entry_point = 0x03
@@ -2349,7 +2350,7 @@ class DebugInformationEntry:
     child of the previous one."""
     abbreviation_number: int
     """A number of the abbreviation in the sequence defined in .debug_abbrev."""
-    tag_id: int
+    tag: TagEncoding
     """An id of the DIE tag."""
     attributes: Sequence[DieAttributeValue]
     """A sequence of attributes in the DIE."""
@@ -2372,8 +2373,8 @@ class DebugInformationEntry:
                     # A null entry indicates and end of a children-sequence.
                     # After yielding it, reduce level by one.
                     yield DebugInformationEntry(
-                        abbrev_number,
                         0,
+                        TagEncoding.invalid,
                         tuple(),
                         die_offset,
                         level,
@@ -2386,13 +2387,17 @@ class DebugInformationEntry:
             attributes = tuple(DieAttributeValue.read(sr, abbreviation.attributes))
             yield DebugInformationEntry(
                 abbrev_number,
-                abbreviation.tag,
+                TagEncoding(abbreviation.tag),
                 attributes,
                 die_offset,
                 level,
             )
             if abbreviation.has_children:
                 level += 1
+
+    @property
+    def is_null_entry(self) -> bool:
+        return self.abbreviation_number == 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2467,7 +2472,7 @@ class CompilationUnit:
         # str_offsets_base also can be in partial CUs and types, but for now
         # those are not supported by this program.
         cu_entrie = self.die_entries[0]
-        assert cu_entrie.tag_id == TagEncoding.DW_TAG_compile_unit.value
+        assert cu_entrie.tag == TagEncoding.DW_TAG_compile_unit
 
         def find_attribute(attr_type: AttributeEncoding) -> DieAttributeValue:
             # For simplicity let Python raise exception if attribute not found.

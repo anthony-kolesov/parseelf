@@ -868,10 +868,7 @@ def print_dwarf_info(
         print(f'   Abbrev Offset: {cu.debug_abbrev_offset:#x}')
         print(f'   Pointer Size:  {cu.address_size}')
         for die in cu.die_entries:
-            if die.abbreviation_number:
-                abbrev_name = f' ({dwarf.TagEncoding(die.tag_id).name})'
-            else:
-                abbrev_name = ''
+            abbrev_name = f' ({die.tag.name})' if not die.is_null_entry else ''
             print(f' <{die.level}><{die.offset:x}>: Abbrev Number: {die.abbreviation_number}{abbrev_name}')
             for attr in die.attributes:
                 _print_die_attribute(attr, cu, debug_str_offsets)
