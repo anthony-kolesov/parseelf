@@ -1501,30 +1501,6 @@ class CallFrameTable(collections.abc.Iterable[CallFrameTableRow]):
         The row itself is not modified - a modified copy is returned."""
         new_rules = ChainMap(current_row.register_rules).new_child()
         new_rules[regnum] = register_rule
-        # Original implementation assumed that if register has a rule defined in
-        # CIE, then the is always active at the start of the FDE table. However
-        # the behaviour should be different - if FDE describes any rule for the
-        # register then the initial rule is not applicable at all.
-        #
-        # I don't fully understand why it is so, and where in the specification
-        # this is required - I've discovered this by comparing outputs with
-        # objdump. This behaviour doesn't make a lot of sense to me, because it
-        # above else also means that to properly build a table the parse should
-        # read the table completely, since the register rule can be defined at any
-        # moment in the middle of the FDE entry. It also creates weird tables,
-        # like this:
-        #
-        # 00000018 00000010 0000001c FDE cie=00000000 pc=00001090..000010ca
-        # LOC   CFA        ra
-        # 00001090 esp+4    u
-        # 00001094 esp+4    u
-        #
-        # So there are two lines, but they are identical, so it looks strange.
-        # Nevertheless I will stick to the objdump behavior because I compare
-        # parse_elf's output with it, and also the default assumption would be
-        # that binutils developers are more likely to be correct than not.
-        if regnum in self.__initial.register_rules.keys():
-            del self.__initial.register_rules[regnum]
         return dataclasses.replace(current_row, register_rules=new_rules)
 
     def __iter__(self) -> Iterator[CallFrameTableRow]:
