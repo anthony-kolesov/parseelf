@@ -2462,6 +2462,21 @@ class CompilationUnit:
                 die_entries,
             )
 
+    def str_offsets_base(self) -> int:
+        # First entry must be a full compilation unit for now.
+        # str_offsets_base also can be in partial CUs and types, but for now
+        # those are not supported by this program.
+        cu_entrie = self.die_entries[0]
+        assert cu_entrie.tag_id == TagEncoding.DW_TAG_compile_unit.value
+
+        def find_attribute(attr_type: AttributeEncoding) -> DieAttributeValue:
+            # For simplicity let Python raise exception if attribute not found.
+            return next((a for a in cu_entrie.attributes if a.attribute == attr_type))
+        str_offsets_base_attr = find_attribute(AttributeEncoding.DW_AT_str_offsets_base)
+        # For simplicity just assert the assumption.
+        assert isinstance(str_offsets_base_attr.value, int)
+        return str_offsets_base_attr.value
+
 
 #
 # .debug_abbrev

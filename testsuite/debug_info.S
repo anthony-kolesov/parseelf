@@ -31,9 +31,9 @@ _start:
     .uleb128 DW_AT_macros
     .uleb128 DW_FORM_sec_offset  # Offset into .debug_macro
     .uleb128 DW_AT_comp_dir
-    .uleb128 DW_FORM_string  # DW_FORM_strp
+    .uleb128 DW_FORM_strp
     .uleb128 DW_AT_producer
-    .uleb128 DW_FORM_string  # DW_FORM_strp
+    .uleb128 DW_FORM_strx
     .uleb128 DW_AT_identifier_case
     .uleb128 DW_FORM_data1
     # .uleb128 DW_AT_base_types
@@ -75,14 +75,43 @@ _start:
     .byte DW_LANG_C99  # DW_AT_language
     .4byte 0  # DW_AT_stmt_list, TODO: put meaningful value here.
     .4byte 0  # DW_AT_macros, TODO: put meaningful value here.
-    .string "/home/anton"  # DW_AT_comp_dir, TODO: replace with strp
-    .string "awesome compiler"  # DW_AT_producer, TODO: replace with strp
+    .4byte .Lstr_compile_dir  # DW_AT_comp_dir
+    .uleb128 1  # DW_AT_producer
     .byte DW_ID_case_sensitive # DW_AT_identifier_case
     .byte 1  # DW_AT_main_subprogram
     .8byte _start  # DW_AT_entry_pc
-    .4byte 0 # DW_AT_str_offsets_base, TODO: put meaningful value here.
+    # DW_AT_str_offsets_base should be a section offset that points to a first
+    # entry in the table, entry specific to this CU. This value would be 8 at
+    # least: 4 bytes for length in DWARF32, 4 bytes for header. DWARF64 would
+    # have 12 bytes for length. In this example I use DWARF32 and skip the
+    # first entry.
+    .4byte 12  # DW_AT_str_offsets_base
     .4byte 0 # DW_AT_addr_base, TODO: put meaningful value here.
     .4byte 0 # DW_AT_rnglists_base, TODO: put meaningful value here.
     .4byte 0 # DW_AT_loclists_base, TODO: put meaningful value here.
     .uleb128  0 # End of DIE entries
 .LDW5_CU1_end:
+
+
+.section .debug_str, "S", @progbits
+.Lstr_dummy1:
+    .string "dummy1"
+.Lstr_compile_dir:
+    .string "/home/anton"
+.Lstr_producer:
+    .string "awesome compiler"
+.Lstr_dummy2:
+    .string "dummy2"
+
+
+.section .debug_str_offsets, "", @progbits
+.LCU1_str_offsets:
+    .4byte .LCU1_str_offsets_end - .LCU1_str_offsets_version # length
+.LCU1_str_offsets_version:
+    .2byte 5  # version
+    .2byte 0  # padding
+    .4byte .Lstr_dummy1
+    .4byte .Lstr_compile_dir
+    .4byte .Lstr_producer
+    .4byte .Lstr_dummy2
+.LCU1_str_offsets_end:
