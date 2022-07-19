@@ -41,7 +41,7 @@ import dataclasses
 from enum import Enum
 from io import BytesIO, SEEK_CUR
 import logging
-from typing import BinaryIO, final, Iterable, Iterator, Literal, \
+from typing import BinaryIO, final, Iterable, Iterator, Literal, Mapping, \
     MutableMapping, NamedTuple, Optional, Sequence, TextIO, TypeVar
 
 from elf import align_up, DataFormat, ElfClass, ElfMachineType, StringTable
@@ -2338,8 +2338,9 @@ class DebugInformationEntry:
     @staticmethod
     def read(
         sr: StreamReader,
-        abbreviations: Sequence['AbbreviationDeclaration'],
+        abbreviations: Mapping[int, 'AbbreviationDeclaration'],
     ) -> Iterator['DebugInformationEntry']:
+        """`abbreviations` is a mapping from abbreviation numbers to abbreviation declarations."""
         level = 0
         while not sr.at_eof:
             die_offset = sr.current_position
@@ -2357,9 +2358,10 @@ class DebugInformationEntry:
                     )
                     level -= 1
                 continue
-            if abbrev_number > len(abbreviations):
+            if abbrev_number not in abbreviations:
+                logging.error('Unknown abbreviation number %u', abbrev_number)
                 break
-            abbreviation = abbreviations[abbrev_number - 1]
+            abbreviation = abbreviations[abbrev_number]
             attributes = tuple(DieAttributeValue.read(sr, abbreviation.attributes))
             yield DebugInformationEntry(
                 abbrev_number,
@@ -2427,7 +2429,7 @@ class CompilationUnit:
             debug_abbrev_sr.set_abs_position(debug_abbrev_offset)
             cu_abbrev = next(AbbreviationDeclaration.read(debug_abbrev_sr, True))
             # Flatten abbreviations.
-            abbreviations = tuple(flatten(cu_abbrev))
+            abbreviations = {abbrev.code: abbrev for abbrev in flatten(cu_abbrev)}
 
             die_entries: list[DebugInformationEntry] = list(DebugInformationEntry.read(sr, abbreviations))
 
