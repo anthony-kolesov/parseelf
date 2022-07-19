@@ -733,6 +733,7 @@ def _format_die_attribute_value(
     value: int | bytes,
     cu: dwarf.CompilationUnit,
     debug_str_offsets: dwarf.StringOffsetsTable,
+    debug_line_strings: elf.StringTable,
 ) -> str:
     # A formatter for attributes that use an Enum that has a 'human_name' attribute.
     def human_name(typ: type, value: int, /, attr_name: str = 'human_name') -> str:
@@ -748,6 +749,9 @@ def _format_die_attribute_value(
 
     def strp_formatting(value: int) -> str:
         return f'(indirect string, offset: {value:#x}): {debug_str_offsets.strings[value]}'
+
+    def line_strp_formatting(value: int) -> str:
+        return f'(indirect line string, offset: {value:#x}): {debug_line_strings[value]}'
 
     def strx_formatting(value: int) -> str:
         base = cu.str_offsets_base()
@@ -768,6 +772,7 @@ def _format_die_attribute_value(
                 value,
                 cu,
                 debug_str_offsets,
+                debug_line_strings,
             )
         ))
 
@@ -800,6 +805,7 @@ def _format_die_attribute_value(
         dwarf.FormEncoding.DW_FORM_ref_sig8: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_indirect: lambda a: indirect_formatting(a[0], a[1]),
         dwarf.FormEncoding.DW_FORM_strx: strx_formatting,
+        dwarf.FormEncoding.DW_FORM_line_strp: line_strp_formatting,
     }
 
     # In most cases the printing format for a value is based on it's
@@ -818,11 +824,12 @@ def _print_die_attribute(
     attr: dwarf.DieAttributeValue,
     cu: dwarf.CompilationUnit,
     debug_str_offsets: dwarf.StringOffsetsTable,
+    debug_line_strings: elf.StringTable,
 ) -> None:
     print(
         f'    <{attr.offset:x}>  ',
         f'{attr.attribute.name:18}:',
-        _format_die_attribute_value(attr.attribute, attr.form, attr.value, cu, debug_str_offsets),
+        _format_die_attribute_value(attr.attribute, attr.form, attr.value, cu, debug_str_offsets, debug_line_strings),
     )
 
 
@@ -850,6 +857,12 @@ def print_dwarf_info(
         # Empty offset table.
         debug_str_offsets = dwarf.StringOffsetsTable.empty(debug_strings)
 
+    debug_line_str_section = elf_obj.find_section('.debug_line_str')
+    if debug_line_str_section is not None:
+        debug_line_strings = elf_obj.strings(debug_line_str_section.number)
+    else:
+        debug_line_strings = elf.StringTable(b'\0')
+
     # Read abbreviation data.
     debug_abbrev = elf_obj.find_section('.debug_abbrev')
     assert debug_abbrev is not None
@@ -871,7 +884,7 @@ def print_dwarf_info(
             abbrev_name = f' ({die.tag.name})' if not die.is_null_entry else ''
             print(f' <{die.level}><{die.offset:x}>: Abbrev Number: {die.abbreviation_number}{abbrev_name}')
             for attr in die.attributes:
-                _print_die_attribute(attr, cu, debug_str_offsets)
+                _print_die_attribute(attr, cu, debug_str_offsets, debug_line_strings)
     print()
 
 
@@ -1115,13 +1128,14 @@ def print_dwarf_frames_interp(
 def print_dwarf_str(
     elf_obj: elf.Elf,
 ) -> None:
-    debug_str = elf_obj.find_section('.debug_str')
-    if debug_str is None:
-        return
-    print(f'Contents of the {debug_str.name} section:\n')
-    debug_str_content = elf_obj.section_content(debug_str.number)
-    _dump_hex(debug_str_content)
-    print()
+    for section_name in ('.debug_str', '.debug_line_str'):
+        debug_str = elf_obj.find_section(section_name)
+        if debug_str is None:
+            continue
+        print(f'Contents of the {debug_str.name} section:\n')
+        debug_str_content = elf_obj.section_content(debug_str.number)
+        _dump_hex(debug_str_content)
+        print()
 
 
 def print_dwarf_str_offsets(
