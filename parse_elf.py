@@ -888,7 +888,11 @@ def print_dwarf_abbrev(
             attr_name = (dwarf.AttributeEncoding(attr.attribute_id).name if attr.attribute_id
                          else f'DW_AT value: {attr.attribute_id}')
             attr_form = dwarf.FormEncoding(attr.form_id).name if attr.form_id else f'DW_FORM value: {attr.form_id}'
-            print(f'    {attr_name:18} {attr_form}')
+            if len(attr.form_arguments):
+                attr_args = f': {", ".join((str(i) for i in attr.form_arguments))}'
+            else:
+                attr_args = ''
+            print(f'    {attr_name:18} {attr_form}{attr_args}')
         for child in abbrev.children:
             print_abbrev(child)
 

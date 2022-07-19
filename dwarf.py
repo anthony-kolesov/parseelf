@@ -2258,8 +2258,8 @@ class FormEncoding(Enum):
     # 16-byte integers not supported.
     # DW_FORM_data16 = (0x1e, StreamReader.uint16)
     DW_FORM_line_strp = (0x1f, StreamReader.offset)
-    # Not supported yet.
-    # DW_FORM_implicit_const = 0x21
+    # Return an implied constant, passed as a form argument
+    DW_FORM_implicit_const = (0x21, lambda _, value: value)
     DW_FORM_loclistx = (0x22, StreamReader.uleb128)
     DW_FORM_rnglistx = (0x23, StreamReader.uleb128)
     DW_FORM_ref_sup8 = (0x24, StreamReader.uint8)
@@ -2306,7 +2306,7 @@ class DieAttributeValue:
                 break
             form = FormEncoding(attr.form_id)
             attr_offset = sr.current_position
-            attr_value = form.reader(sr)
+            attr_value = form.reader(sr, *attr.form_arguments)
             yield DieAttributeValue(
                 AttributeEncoding(attr.attribute_id),
                 form,
@@ -2469,13 +2469,21 @@ class AbbreviationAttribute:
     Can contain zero values, as those can be encountered in the raw data."""
     attribute_id: int
     form_id: int
+    form_arguments: Sequence[int]
+    """Arguments for the form. Used only by the DW_FORM_implicit_const."""
 
     @staticmethod
     def read(sr: StreamReader) -> Iterator['AbbreviationAttribute']:
         while not sr.at_eof:
             name = sr.uleb128()
             form = sr.uleb128()
-            yield AbbreviationAttribute(name, form)
+            if form == FormEncoding.DW_FORM_implicit_const.value:
+                # Read an argument.
+                form_args: Sequence[int] = (sr.sleb128(), )
+            else:
+                form_args = tuple()
+
+            yield AbbreviationAttribute(name, form, form_args)
             if name == 0 and form == 0:
                 return
 

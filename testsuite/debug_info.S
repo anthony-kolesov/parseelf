@@ -668,6 +668,20 @@ _start:
     .string "A DIE with all attributes."
 
 
+# Order of sections is important here, because when passed --dwarf objdump
+# iterates over sections and applies correct "section formatting" as it
+# encounters sections, but parse_elf.py instead iterates over options and prints
+# sections affected by the selected "formatter". Hence, when the option is just
+# --dwarf, and order of sections is .debug_str, .debug_str_offsets,
+# .debug_line_str, then objdump will print them in that order, while
+# parse_elf.py will print in order of .debug_str, .debug_line_str,
+# .debug_str_offsets. At this moment I don't want to bother with fixing this
+# discrepancy in algorithm, hence test cases shouldn't expose the difference.
+.section .debug_line_str, "S", @progbits
+.Lline_str1:
+    .string "string1"
+
+
 .section .debug_str_offsets, "", @progbits
 .LCU1_str_offsets:
     .4byte .LCU1_str_offsets_end - .LCU1_str_offsets_version # length
@@ -681,8 +695,3 @@ _start:
     .4byte .Lstr_int
     .4byte .Lstr_int_description
 .LCU1_str_offsets_end:
-
-
-.section .debug_line_str, "S", @progbits
-.Lline_str1:
-    .string "string1"
