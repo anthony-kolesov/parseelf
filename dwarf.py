@@ -2394,18 +2394,20 @@ class DebugInformationEntry:
             die_offset = sr.current_position
             abbrev_number = sr.uleb128()
             if abbrev_number == 0:
+                # A null entry indicates and end of a children-sequence.
+                # After yielding it, reduce level by one.
+                yield DebugInformationEntry(
+                    0,
+                    TagEncoding.invalid,
+                    tuple(),
+                    die_offset,
+                    level,
+                )
+                level -= 1
                 if level > 0:
-                    # A null entry indicates and end of a children-sequence.
-                    # After yielding it, reduce level by one.
-                    yield DebugInformationEntry(
-                        0,
-                        TagEncoding.invalid,
-                        tuple(),
-                        die_offset,
-                        level,
-                    )
-                    level -= 1
-                continue
+                    continue  # End of DIE, but not the CU.
+                else:
+                    return  # End of CU.
             if abbrev_number not in abbreviations:
                 logging.error('Unknown abbreviation number %u', abbrev_number)
                 break
@@ -2467,17 +2469,9 @@ class CompilationUnit:
                 address_size = sr.uint1()
                 debug_abbrev_offset = sr.offset()
 
-            def flatten(a: AbbreviationDeclaration) -> Iterator[AbbreviationDeclaration]:
-                """Flatten a tree of abbreviation declarations into a single-level iterator."""
-                yield a
-                for c in a.children:
-                    yield from flatten(c)
-
             # Get abbreviations for this CU.
             debug_abbrev_sr.set_abs_position(debug_abbrev_offset)
-            cu_abbrev = next(AbbreviationDeclaration.read(debug_abbrev_sr, True))
-            # Flatten abbreviations.
-            abbreviations = {abbrev.code: abbrev for abbrev in flatten(cu_abbrev)}
+            abbreviations = {abbrev.code: abbrev for abbrev in AbbreviationDeclaration.read(debug_abbrev_sr)}
 
             die_entries: list[DebugInformationEntry] = list(DebugInformationEntry.read(sr, abbreviations))
 
@@ -2546,10 +2540,9 @@ class AbbreviationDeclaration:
     attributes: Sequence[AbbreviationAttribute]
     children: Sequence['AbbreviationDeclaration']
     offset: int
-    level: int
 
     @staticmethod
-    def read(sr: StreamReader, level: int = 0) -> Iterator['AbbreviationDeclaration']:
+    def read(sr: StreamReader) -> Iterator['AbbreviationDeclaration']:
         while not sr.at_eof:
             offset = sr.current_position
             code = sr.uleb128()
@@ -2560,19 +2553,13 @@ class AbbreviationDeclaration:
             has_children = bool(sr.uint1())
             attributes = tuple(AbbreviationAttribute.read(sr))
 
-            if has_children:
-                children = tuple(AbbreviationDeclaration.read(sr, level + 1))
-            else:
-                children = tuple()
-
             yield AbbreviationDeclaration(
                 code,
                 TagEncoding(tag),
                 has_children,
                 attributes,
-                children,
+                tuple(),
                 offset,
-                level,
             )
 
 

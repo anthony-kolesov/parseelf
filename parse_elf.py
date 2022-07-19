@@ -969,8 +969,9 @@ def print_dwarf_abbrev(
     print('Contents of the .debug_abbrev section:\n')
     stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
-    for abbrev in dwarf.AbbreviationDeclaration.read(sr):
-        print_abbrev(abbrev)
+    while not sr.at_eof:
+        for abbrev in dwarf.AbbreviationDeclaration.read(sr):
+            print_abbrev(abbrev)
     print()
 
 
