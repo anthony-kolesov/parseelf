@@ -728,6 +728,7 @@ def print_dwarf_decodedline(
 
 
 def _format_die_attribute_value(
+    elf_obj: elf.Elf,
     attribute: dwarf.AttributeEncoding,
     form: dwarf.FormEncoding,
     value: int | bytes,
@@ -740,7 +741,10 @@ def _format_die_attribute_value(
         return f'{value}\t({getattr(typ(value), attr_name)})'
 
     def block_formatting(b: bytes) -> str:
-        return f'{len(b)} byte block: {b.hex()} '
+        # bytes.hex() always returns two chars per byte, but binutils style is
+        # to not print leading zeros.
+        hex_presentation = ' '.join((format(byte, 'x') for byte in b))
+        return f'{len(b)} byte block: {hex_presentation} '
 
     def exprloc(b: bytes) -> str:
         init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(b))
@@ -748,7 +752,24 @@ def _format_die_attribute_value(
         s = dwarf.ExpressionOperation.objdump_format_seq(fmt, dwarf.ExpressionOperation.read(init_instr_sr))
         return f'{block_formatting(b)}\t({s})'
 
+    def discr_list(b: bytes) -> str:
+        sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(b))
+        result = []
+        while not sr.at_eof:
+            descriptor = dwarf.DiscriminantDescriptorEncoding(sr.uint1())
+            if descriptor == dwarf.DiscriminantDescriptorEncoding.DW_DSC_label:
+                value = sr.uleb128()
+                result.append(f'label {value}')
+            else:
+                begin = sr.uleb128()
+                end = sr.uleb128()
+                result.append(f'range {begin}..{end}')
+        # I am too lazy to implement the algorith that decides if discriminant
+        # signed or not, so just assume that it is always unsigned for now.
+        return f'{block_formatting(b)}\t({", ".join(result)})(unsigned)'
+
     bytes_attr_formatting: dict[dwarf.AttributeEncoding, Callable[[bytes], str]] = {
+        dwarf.AttributeEncoding.DW_AT_discr_list: discr_list,
         dwarf.AttributeEncoding.DW_AT_frame_base: exprloc,
         dwarf.AttributeEncoding.DW_AT_data_location: exprloc,
     }
@@ -784,6 +805,7 @@ def _format_die_attribute_value(
         return ' '.join((
             dwarf.FormEncoding(form_id).name,
             _format_die_attribute_value(
+                elf_obj,
                 attribute,
                 dwarf.FormEncoding(form_id),
                 value,
@@ -844,6 +866,7 @@ def _format_die_attribute_value(
 
 
 def _print_die_attribute(
+    elf_obj: elf.Elf,
     attr: dwarf.DieAttributeValue,
     cu: dwarf.CompilationUnit,
     debug_str_offsets: dwarf.StringOffsetsTable,
@@ -852,7 +875,15 @@ def _print_die_attribute(
     print(
         f'    <{attr.offset:x}>  ',
         f'{attr.attribute.name:18}:',
-        _format_die_attribute_value(attr.attribute, attr.form, attr.value, cu, debug_str_offsets, debug_line_strings),
+        _format_die_attribute_value(
+            elf_obj,
+            attr.attribute,
+            attr.form,
+            attr.value,
+            cu,
+            debug_str_offsets,
+            debug_line_strings,
+        ),
     )
 
 
@@ -907,7 +938,7 @@ def print_dwarf_info(
             abbrev_name = f' ({die.tag.name})' if not die.is_null_entry else ''
             print(f' <{die.level}><{die.offset:x}>: Abbrev Number: {die.abbreviation_number}{abbrev_name}')
             for attr in die.attributes:
-                _print_die_attribute(attr, cu, debug_str_offsets, debug_line_strings)
+                _print_die_attribute(elf_obj, attr, cu, debug_str_offsets, debug_line_strings)
     print()
 
 
