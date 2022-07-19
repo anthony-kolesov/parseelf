@@ -106,8 +106,10 @@ _start:
     .uleb128 DW_FORM_data4
     .uleb128 DW_AT_visibility
     .uleb128 DW_FORM_data1
-    .uleb128 DW_AT_import
-    .uleb128 DW_FORM_ref4
+    # .uleb128 DW_AT_import - this one requires more complex handling that
+        # typical attribute, and while this is definitely doable, I probably
+        # would do something else for now.
+    # .uleb128 DW_FORM_ref4
     # .uleb128 DW_AT_string_length
     # .uleb128 DW_FORM_loclistx
     .uleb128 DW_AT_common_reference
@@ -480,7 +482,7 @@ _start:
     .4byte .LDW5_base_type_DIE - .LDW5_CU1_start  # DW_AT_discr
     .4byte 0x5aa5f00f  # DW_AT_discr_value
     .byte DW_VIS_exported  # DW_AT_visibility
-    .4byte .LDW5_base_type_DIE  # DW_AT_import
+    # .4byte .LDW5_base_type_DIE  # DW_AT_import
     # DW_AT_string_length
     .4byte .LDW5_base_type_DIE  # DW_AT_common_reference
     .4byte .Lstr_compile_dir  # DW_AT_comp_dir
