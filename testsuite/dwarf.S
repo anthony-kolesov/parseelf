@@ -354,11 +354,13 @@
 #define DW_FORM_addrx3 (0x2b)
 #define DW_FORM_addrx4 (0x2c)
 
+# Identifier case
 #define DW_ID_case_sensitive (0x00)
 #define DW_ID_up_case (0x01)
 #define DW_ID_down_case (0x02)
 #define DW_ID_case_insensitive (0x03)
 
+# Unity types
 #define DW_UT_compile (0x01)
 #define DW_UT_type (0x02)
 #define DW_UT_partial (0x03)
@@ -366,9 +368,7 @@
 #define DW_UT_split_compile (0x05)
 #define DW_UT_split_type (0x06)
 
-#
 # Languages
-#
 #define DW_LANG_C89 (0x0001)
 #define DW_LANG_C (0x0002)
 #define DW_LANG_Ada83 (0x0003)
@@ -406,3 +406,78 @@
 #define DW_LANG_Fortran08 (0x0023)
 #define DW_LANG_RenderScript (0x0024)
 #define DW_LANG_BLISS (0x0025)
+
+# Base Type attribute encodings
+#define DW_ATE_address (0x01)
+#define DW_ATE_boolean (0x02)
+#define DW_ATE_complex_float (0x03)
+#define DW_ATE_float (0x04)
+#define DW_ATE_signed (0x05)
+#define DW_ATE_signed_char (0x06)
+#define DW_ATE_unsigned (0x07)
+#define DW_ATE_unsigned_char (0x08)
+#define DW_ATE_imaginary_float (0x09)
+#define DW_ATE_packed_decimal (0x0a)
+#define DW_ATE_numeric_string (0x0b)
+#define DW_ATE_edited (0x0c)
+#define DW_ATE_signed_fixed (0x0d)
+#define DW_ATE_unsigned_fixed (0x0e)
+#define DW_ATE_decimal_float (0x0f)
+#define DW_ATE_UTF (0x10)
+#define DW_ATE_UCS (0x11)
+#define DW_ATE_ASCII (0x12)
+#define DW_ATE_lo_user (0x80)
+#define DW_ATE_hi_user (0xff)
+
+# Endianity
+#define DW_END_default (0x00)
+#define DW_END_big (0x01)
+#define DW_END_little (0x02)
+
+# Array ordering
+#define DW_ORD_row_major (0x00)
+#define DW_ORD_col_major (0x01)
+
+# Visibility
+#define DW_VIS_local (0x01)
+#define DW_VIS_exported (0x02)
+#define DW_VIS_qualified (0x03)
+
+# Inline codes
+#define DW_INL_not_inlined (0x00)
+#define DW_INL_inlined (0x01)
+#define DW_INL_declared_not_inlined (0x02)
+#define DW_INL_declared_inlined (0x03)
+
+# Accessibility
+#define DW_ACCESS_public (0x01)
+#define DW_ACCESS_protected (0x02)
+#define DW_ACCESS_private (0x03)
+
+# Calling conventions
+#define DW_CC_normal (0x01)
+#define DW_CC_program (0x02)
+#define DW_CC_nocall (0x03)
+#define DW_CC_pass_by_reference (0x04)
+#define DW_CC_pass_by_value (0x05)
+
+# Discriminant descriptor
+#define DW_DSC_label (0x00)
+#define DW_DSC_range (0x01)
+
+# Virtuality
+#define DW_VIRTUALITY_none (0x00)
+#define DW_VIRTUALITY_virtual (0x01)
+#define DW_VIRTUALITY_pure_virtual (0x02)
+
+# Decimal sign
+#define DW_DS_unsigned (0x01)
+#define DW_DS_leading_overpunch (0x02)
+#define DW_DS_trailing_overpunch (0x03)
+#define DW_DS_leading_separate (0x04)
+#define DW_DS_trailing_separate (0x05)
+
+# Defaulted
+#define DW_DEFAULTED_no (0x00)
+#define DW_DEFAULTED_in_class (0x01)
+#define DW_DEFAULTED_out_of_class (0x02)
