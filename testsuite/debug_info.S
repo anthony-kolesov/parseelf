@@ -79,7 +79,7 @@ _start:
 .Lall_attributes_abbrev:
     .uleb128 0xff0  # Abbreviation number.
     .uleb128 DW_TAG_constant
-    .byte DW_CHILDREN_no
+    .byte DW_CHILDREN_yes
     .uleb128 DW_AT_sibling
     .uleb128 DW_FORM_ref4
     # .uleb128 DW_AT_location
@@ -319,9 +319,103 @@ _start:
     .uleb128 DW_FORM_data1
     # .uleb128 DW_AT_loclists_base  # Offset into .debug_loclists
     # .uleb128 DW_FORM_sec_offset
-
     .uleb128 0  # End of abbreviation.
     .uleb128 0
+
+# An abbreviation that enumerates through all possible forms. It uses same
+# attribute for all forms, which of course doesn't make any semantic sense, but
+# the test is for the data presentation, and not for semantic handling, so this
+# is ok, and makes test simpler.
+.Lall_forms_abbrev:
+    .uleb128 0xff1  # Abbreviation number.
+    .uleb128 DW_TAG_constant
+    .byte DW_CHILDREN_no
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_addr
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_block2
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_block4
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_data2
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_data4
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_data8
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_string
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_block
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_block1
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_data1
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_flag
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_sdata
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_strp
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_udata
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_ref_addr
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_ref1
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_ref2
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_ref4
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_ref8
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_ref_udata
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_indirect
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_sec_offset
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_exprloc
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_flag_present
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_ref_sig8  # Not supported properly yet
+    # DWARFv5
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_strx
+    # .uleb128 DW_AT_default_value  # debug_addr
+    # .uleb128 DW_FORM_addrx        # debug_addr
+    # .uleb128 DW_FORM_ref_sup4  # Can't test - needs a supplementary file.
+    # .uleb128 DW_FORM_strp_sup  # Can't test - needs a supplementary file.
+    # .uleb128 DW_FORM_data16  # 16-byte integers not supported.
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_line_strp
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_implicit_const
+    .uleb128 0x5a  # implicit constant value.
+    # .uleb128 DW_AT_default_value  # debug_loclists
+    # .uleb128 DW_FORM_loclistx     # debug_loclists
+    # .uleb128 DW_AT_default_value  # debug_rnglists
+    # .uleb128 DW_FORM_rnglistx     # debug_rnglists
+    # .uleb128 DW_FORM_ref_sup8  # Can't test - needs a supplementary file.
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_strx1
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_strx2
+    # .uleb128 DW_FORM_strx3  # 3-byte integers not supported.
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_strx4
+    # .uleb128 DW_AT_default_value  # debug_addr
+    # .uleb128 DW_FORM_addrx1       # debug_addr
+    # .uleb128 DW_AT_default_value  # debug_addr
+    # .uleb128 DW_FORM_addrx2       # debug_addr
+    # .uleb128 DW_FORM_addrx3  # 3-byte integers not supported.
+    # .uleb128 DW_AT_default_value  # debug_addr
+    # .uleb128 DW_FORM_addrx4       # debug_addr
+    .uleb128 0  # End of .Lall_forms_abbrev abbreviation.
+    .uleb128 0
+
+    .uleb128 0  # End of .Lall_attributes_abbrev children.
 
     .uleb128 0  # End of .LCU1_abbrev children.
 
@@ -500,6 +594,49 @@ _start:
     .byte DW_DEFAULTED_out_of_class  # DW_AT_defaulted
     # .4byte 0 # DW_AT_loclists_base, TODO: put meaningful value here.
 
+.Lall_forms_DIE:
+    .uleb128 0xff1  # Abbreviation number.
+    .8byte _start  # DW_FORM_addr
+    .2byte 1  # # DW_FORM_block2
+        .byte DW_OP_lit(12)
+    .4byte 1  # # DW_FORM_block4
+        .byte DW_OP_lit(14)
+    .2byte 0xc0f5  # DW_FORM_data2
+    .4byte 0xc0f0a5af  # DW_FORM_data4
+    .8byte 0xc0f0a5af11223344  # DW_FORM_data8
+    .string "awesome compiler"  # DW_FORM_string
+    .uleb128 1  # DW_FORM_block
+        .byte DW_OP_lit(19)
+    .byte 1  # # DW_FORM_block1
+        .byte DW_OP_lit(11)
+    .byte 0xc3  # DW_FORM_data1
+    .byte 1  # DW_FORM_flag
+    .uleb128 0xc0f0a5af  # DW_FORM_sdata
+    .4byte .Lstr_producer  # DW_FORM_strp
+    .uleb128 0xc0f0a5af  # DW_FORM_udata
+    .4byte  .LDW5_base_type_DIE2 # DW_FORM_ref_addr
+    .byte .LDW5_base_type_DIE  # DW_FORM_ref1
+    .2byte .LDW5_base_type_DIE  # DW_FORM_ref2
+    .4byte .LDW5_base_type_DIE  # DW_FORM_ref4
+    .8byte .LDW5_base_type_DIE  # DW_FORM_ref8
+    .uleb128 .LDW5_base_type_DIE  # DW_FORM_ref_udata
+    .uleb128 DW_FORM_strx  # DW_FORM_indirect
+        .byte 1
+    .4byte 8 # DW_FORM_sec_offset
+    .uleb128 1  # DW_FORM_exprloc
+        .byte DW_OP_lit(19)
+    # DW_FORM_flag_present - implicit value.
+    .8byte 0xc0f0a5af11223344  # DW_FORM_ref_sig8 - not supported yet
+    .uleb128 1  # DW_FORM_strx
+    # .uleb128 1  # DW_FORM_addrx
+    .4byte .Lline_str1 + 2  #  DW_FORM_line_strp (offset in the middle of the string)
+    # DW_FORM_implicit_const - implicit value.
+    .byte 1  # DW_FORM_strx1
+    .2byte 1  # DW_FORM_strx2
+    .4byte 1  # DW_FORM_strx4
+    # .byte 1  # DW_FORM_addrx1
+    # .2byte 1  # DW_FORM_addrx2
+    # .4byte 1  # DW_FORM_addrx4
 .LDW5_base_type_DIE2:
     .uleb128 2  # abbreviation number
     .byte 3  # DW_AT_name
@@ -544,3 +681,8 @@ _start:
     .4byte .Lstr_int
     .4byte .Lstr_int_description
 .LCU1_str_offsets_end:
+
+
+.section .debug_line_str, "S", @progbits
+.Lline_str1:
+    .string "string1"
