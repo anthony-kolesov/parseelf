@@ -2100,7 +2100,7 @@ class AttributeEncoding(Enum):
     DW_AT_accessibility = 0x32
     DW_AT_address_class = 0x33
     DW_AT_artificial = 0x34
-    DW_AT_base_type = 0x35
+    DW_AT_base_types = 0x35
     DW_AT_calling_convention = 0x36
     DW_AT_count = 0x37
     DW_AT_data_member_location = 0x38
@@ -2267,6 +2267,69 @@ class UnitTypeEncoding(Enum):
     DW_UT_skeleton = 0x04
     DW_UT_split_compile = 0x05
     DW_UT_split_type = 0x06
+
+
+class EndianityEncoding(DwarfEncoding):
+    DW_END_default = (0x00, 'default')
+    DW_END_big = (0x01, 'big')
+    DW_END_little = (0x02, 'little')
+
+
+class ArrayOrderingEncoding(DwarfEncoding):
+    DW_ORD_row_major = (0x00, 'row major')
+    DW_ORD_col_major = (0x01, 'col major')
+
+
+class VisibilityEncoding(DwarfEncoding):
+    DW_VIS_local = (0x01, 'local')
+    DW_VIS_exported = (0x02, 'exported')
+    DW_VIS_qualified = (0x03, 'qualified')
+
+
+class InlineEncoding(DwarfEncoding):
+    DW_INL_not_inlined = (0x00, 'not inlined')
+    DW_INL_inlined = (0x01, 'inlined')
+    DW_INL_declared_not_inlined = (0x02, 'declared as inlined but ignored')
+    DW_INL_declared_inlined = (0x03, 'declared as inlined and inlined')
+
+
+class AccessibilityEncoding(DwarfEncoding):
+    DW_ACCESS_public = (0x01, 'public')
+    DW_ACCESS_protected = (0x02, 'protected')
+    DW_ACCESS_private = (0x03, 'private')
+
+
+class CallingConventionEncoding(DwarfEncoding):
+    DW_CC_normal = (0x01, 'normal')
+    DW_CC_program = (0x02, 'program')
+    DW_CC_nocall = (0x03, 'nocall')
+    DW_CC_pass_by_reference = (0x04, 'pass by ref')
+    DW_CC_pass_by_value = (0x05, 'pass by value')
+
+
+class DiscriminantDescriptorEncoding(DwarfEncoding):
+    DW_DSC_label = (0x00, 'label')
+    DW_DSC_range = (0x01, 'range')
+
+
+class VirtualityEncoding(DwarfEncoding):
+    DW_VIRTUALITY_none = (0x00, 'none')
+    DW_VIRTUALITY_virtual = (0x01, 'virtual')
+    DW_VIRTUALITY_pure_virtual = (0x02, 'pure_virtual')
+
+
+class DecimalSignEncoding(DwarfEncoding):
+    DW_DS_unsigned = (0x01, 'unsigned')
+    DW_DS_leading_overpunch = (0x02, 'leading overpunch')
+    DW_DS_trailing_overpunch = (0x03, 'trailing overpunch')
+    DW_DS_leading_separate = (0x04, 'separateleading ')
+    DW_DS_trailing_separate = (0x05, 'trailing separate')
+
+
+class DefaultedEncoding(DwarfEncoding):
+    DW_DEFAULTED_no = (0x00, 'no')
+    DW_DEFAULTED_in_class = (0x01, 'in class')
+    DW_DEFAULTED_out_of_class = (0x02, 'out of class')
 
 
 @dataclasses.dataclass(frozen=True)

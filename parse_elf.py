@@ -739,11 +739,34 @@ def _format_die_attribute_value(
     def human_name(typ: type, value: int, /, attr_name: str = 'human_name') -> str:
         return f'{value}\t({getattr(typ(value), attr_name)})'
 
+    def block_formatting(b: bytes) -> str:
+        return f'{len(b)} byte block: {b.hex()} '
+
+    def exprloc(b: bytes) -> str:
+        init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(b))
+        fmt = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format.bits.address_size)
+        s = dwarf.ExpressionOperation.objdump_format_seq(fmt, dwarf.ExpressionOperation.read(init_instr_sr))
+        return f'{block_formatting(b)}\t({s})'
+
+    bytes_attr_formatting: dict[dwarf.AttributeEncoding, Callable[[bytes], str]] = {
+        dwarf.AttributeEncoding.DW_AT_frame_base: exprloc,
+        dwarf.AttributeEncoding.DW_AT_data_location: exprloc,
+    }
+
     attr_formatting: dict[dwarf.AttributeEncoding, Callable[[int], str]] = {
         dwarf.AttributeEncoding.DW_AT_high_pc: lambda a: format(a, '#x'),
         dwarf.AttributeEncoding.DW_AT_language: partial(human_name, dwarf.LanguageEncoding),
         dwarf.AttributeEncoding.DW_AT_encoding: partial(human_name, dwarf.AttributeTypeEncoding),
         dwarf.AttributeEncoding.DW_AT_identifier_case: partial(human_name, dwarf.IdCaseEncoding),
+        dwarf.AttributeEncoding.DW_AT_endianity: partial(human_name, dwarf.EndianityEncoding),
+        dwarf.AttributeEncoding.DW_AT_ordering: partial(human_name, dwarf.ArrayOrderingEncoding),
+        dwarf.AttributeEncoding.DW_AT_visibility: partial(human_name, dwarf.VisibilityEncoding),
+        dwarf.AttributeEncoding.DW_AT_inline: partial(human_name, dwarf.InlineEncoding),
+        dwarf.AttributeEncoding.DW_AT_accessibility: partial(human_name, dwarf.AccessibilityEncoding),
+        dwarf.AttributeEncoding.DW_AT_calling_convention: partial(human_name, dwarf.CallingConventionEncoding),
+        dwarf.AttributeEncoding.DW_AT_virtuality: partial(human_name, dwarf.VirtualityEncoding),
+        dwarf.AttributeEncoding.DW_AT_decimal_sign: partial(human_name, dwarf.DecimalSignEncoding),
+        dwarf.AttributeEncoding.DW_AT_defaulted: partial(human_name, dwarf.DefaultedEncoding),
         dwarf.AttributeEncoding.DW_AT_loclists_base: lambda a: f'{a:#x} (location list)',
     }
 
@@ -756,12 +779,6 @@ def _format_die_attribute_value(
     def strx_formatting(value: int) -> str:
         base = cu.str_offsets_base()
         return f'(indexed string: {value:#x}): {debug_str_offsets.get(base, value)}'
-
-    def explr_formatting(b: bytes) -> str:
-        init_instr_sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(b))
-        fmt = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format.bits.address_size)
-        s = dwarf.ExpressionOperation.objdump_format_seq(fmt, dwarf.ExpressionOperation.read(init_instr_sr))
-        return f'{len(b)} byte block: {b.hex()} \t({s})'
 
     def indirect_formatting(form_id: int, value: int | bytes) -> str:
         return ' '.join((
@@ -780,32 +797,36 @@ def _format_die_attribute_value(
     # a function returned from this dictionary.
     form_formatting: dict[dwarf.FormEncoding, Any] = {
         dwarf.FormEncoding.DW_FORM_addr: lambda a: format(a, '#x'),
-        dwarf.FormEncoding.DW_FORM_block2: str,
-        dwarf.FormEncoding.DW_FORM_block4: str,
+        dwarf.FormEncoding.DW_FORM_block2: block_formatting,
+        dwarf.FormEncoding.DW_FORM_block4: block_formatting,
         dwarf.FormEncoding.DW_FORM_data2: str,
-        dwarf.FormEncoding.DW_FORM_data4: str,
-        dwarf.FormEncoding.DW_FORM_data8: str,
+        dwarf.FormEncoding.DW_FORM_data4: lambda a: format(a, '#x'),
+        dwarf.FormEncoding.DW_FORM_data8: lambda a: format(a, '#x'),
         dwarf.FormEncoding.DW_FORM_string: str,
-        dwarf.FormEncoding.DW_FORM_block: str,
-        dwarf.FormEncoding.DW_FORM_block1: str,
+        dwarf.FormEncoding.DW_FORM_block: block_formatting,
+        dwarf.FormEncoding.DW_FORM_block1: block_formatting,
         dwarf.FormEncoding.DW_FORM_data1: str,
         dwarf.FormEncoding.DW_FORM_flag: str,
-        dwarf.FormEncoding.DW_FORM_sdata: lambda a: format(a, '#x'),
+        dwarf.FormEncoding.DW_FORM_sdata: str,  # lambda a: format(a, '#x'),
         dwarf.FormEncoding.DW_FORM_strp: strp_formatting,
-        dwarf.FormEncoding.DW_FORM_udata: lambda a: format(a, '#x'),
+        dwarf.FormEncoding.DW_FORM_udata: str,  # lambda a: format(a, '#x'),
         dwarf.FormEncoding.DW_FORM_ref_addr: lambda a: f'<{a:#x}>',
         dwarf.FormEncoding.DW_FORM_ref1: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_ref2: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_ref4: lambda a: f'<{a + cu.offset:#x}>',
-        dwarf.FormEncoding.DW_FORM_ref8: lambda a: f'<{a + cu.offset:#x}>',
+        # For some reason binutils/dwarf.c:read_and_display_attr_value treats ref8 as data, rather than a reference.
+        dwarf.FormEncoding.DW_FORM_ref8: lambda a: f'{a + cu.offset:#x}',
         dwarf.FormEncoding.DW_FORM_ref_udata: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_sec_offset: lambda a: format(a, '#x'),
-        dwarf.FormEncoding.DW_FORM_exprloc: explr_formatting,
+        dwarf.FormEncoding.DW_FORM_exprloc: block_formatting,
         dwarf.FormEncoding.DW_FORM_flag_present: str,
-        dwarf.FormEncoding.DW_FORM_ref_sig8: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_ref_sig8: lambda a: f'signature: {a + cu.offset:#x}',
         dwarf.FormEncoding.DW_FORM_indirect: lambda a: indirect_formatting(a[0], a[1]),
         dwarf.FormEncoding.DW_FORM_strx: strx_formatting,
         dwarf.FormEncoding.DW_FORM_line_strp: line_strp_formatting,
+        dwarf.FormEncoding.DW_FORM_strx1: strx_formatting,
+        dwarf.FormEncoding.DW_FORM_strx2: strx_formatting,
+        dwarf.FormEncoding.DW_FORM_strx4: strx_formatting,
     }
 
     # In most cases the printing format for a value is based on it's
@@ -814,7 +835,9 @@ def _format_die_attribute_value(
     # attribute-specific formatters have higher priority over
     # form-specific.
     # attr_value_int = cast(int, attr.value)
-    if attribute in attr_formatting:
+    if isinstance(value, bytes) and attribute in bytes_attr_formatting:
+        return bytes_attr_formatting[attribute](value)
+    elif attribute in attr_formatting:
         return attr_formatting[attribute](cast(int, value))
     else:
         return form_formatting.get(form, str)(value)

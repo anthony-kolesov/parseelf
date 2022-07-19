@@ -168,8 +168,8 @@ _start:
     .uleb128 DW_FORM_data1
     .uleb128 DW_AT_external
     .uleb128 DW_FORM_flag
-    # .uleb128 DW_AT_frame_base
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_frame_base
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_friend
     .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_identifier_case
@@ -522,6 +522,8 @@ _start:
 .Lall_attributes_DIE_discr_list_end:
     .byte DW_ATE_unsigned  # DW_AT_encoding
     .byte 1  # DW_AT_external
+    .uleb128 1  # DW_AT_frame_base
+        .byte DW_OP_call_frame_cfa
     .4byte .LDW5_base_type_DIE  # DW_AT_friend
     .byte DW_ID_case_sensitive # DW_AT_identifier_case
     .4byte .LDW5_base_type_DIE  # DW_AT_namelist_item
