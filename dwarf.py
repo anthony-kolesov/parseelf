@@ -286,6 +286,18 @@ class TargetFormatter:
         return self.__pointer_size * 2
 
 
+class DwarfEncoding(Enum):
+    """An extension of standard enum class to include a human name field."""
+    human_name: str
+
+    def __new__(cls, value: int, human_name: str = ''):
+        assert len(human_name)
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.human_name = human_name
+        return obj
+
+
 #
 # .eh_frame
 #
@@ -1917,16 +1929,7 @@ class LineNumberStateMachine:
 #
 # .debug_info
 #
-class AttributeTypeEncoding(Enum):
-    human_name: str
-
-    def __new__(cls, value: int, human_name: str = ''):
-        assert len(human_name)
-        obj = object.__new__(cls)
-        obj._value_ = value
-        obj.human_name = human_name
-        return obj
-
+class AttributeTypeEncoding(DwarfEncoding):
     DW_ATE_address = (0x01, 'address')
     DW_ATE_boolean = (0x02, 'boolean')
     DW_ATE_complex_float = (0x03, 'complex float')
@@ -1949,16 +1952,7 @@ class AttributeTypeEncoding(Enum):
     DW_ATE_hi_user = (0xff, 'hi_user')
 
 
-class LanguageEncoding(Enum):
-    human_name: str
-
-    def __new__(cls, value: int, human_name: str = ''):
-        assert len(human_name)
-        obj = object.__new__(cls)
-        obj._value_ = value
-        obj.human_name = human_name
-        return obj
-
+class LanguageEncoding(DwarfEncoding):
     DW_LANG_C89 = (0x0001, 'ANSI C')
     DW_LANG_C = (0x0002, 'non-ANSI C')
     DW_LANG_Ada83 = (0x0003, 'Ada')
@@ -2000,16 +1994,7 @@ class LanguageEncoding(Enum):
     DW_LANG_hi_user = (0xffff, 'hi_user')
 
 
-class IdCaseEncoding(Enum):
-    human_name: str
-
-    def __new__(cls, value: int, human_name: str = ''):
-        assert len(human_name)
-        obj = object.__new__(cls)
-        obj._value_ = value
-        obj.human_name = human_name
-        return obj
-
+class IdCaseEncoding(DwarfEncoding):
     DW_ID_case_sensitive = (0x00, 'case_sensitive')
     DW_ID_up_case = (0x01, 'up_case')
     DW_ID_down_case = (0x02, 'down_case')
