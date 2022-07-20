@@ -2458,10 +2458,14 @@ class CompilationUnit:
 
             cu_offset = sr.current_position
             version = sr.uint2()
-            assert version in (4, 5), 'Only DWARF v4 and v5 .debug_info are supported.'
+            if version > 5 or version < 2:
+                logging.error('Unsupported .debug_info version %u, only 2 to 5 (inclusive) are supported.', version)
 
             if version <= 4:
                 unit_type = UnitTypeEncoding.DW_UT_compile  # Not available pre-v5
+                # In theory should be using .uint4() for v2, however if we are
+                # having v2, than `length` should be 32bit and hence offset()
+                # will be the same as uint4().
                 debug_abbrev_offset = sr.offset()
                 address_size = sr.uint1()
             else:
