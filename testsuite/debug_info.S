@@ -424,6 +424,19 @@ _start:
 
     .uleb128 0  # End of CU abbreviation.
 
+.LCU2_abbrev:
+    .uleb128 1  # abbreviation number
+    .uleb128 DW_TAG_compile_unit  # tag
+    .byte DW_CHILDREN_no
+    # Attributes
+    .uleb128 DW_AT_addr_base  # Offset into .debug_addr
+    .uleb128 DW_FORM_sec_offset
+    .uleb128 DW_AT_rnglists_base  # Offset into .debug_rnglists
+    .uleb128 DW_FORM_sec_offset
+    .uleb128 0
+    .uleb128 0
+    .uleb128 0  # End of CU2 abbreviation.
+
 
 .section .debug_info, "", @progbits
 .LDW5_CU1_start:
@@ -653,6 +666,19 @@ _start:
     .uleb128  0 # End of DIE entries
 .LDW5_CU1_end:
 
+.LDW5_CU2_start:
+    .4byte .LDW5_CU2_end - .LDW5_CU2_version  # length, DWARF-32
+.LDW5_CU2_version:
+    .2byte 5  # version
+    .byte DW_UT_compile  # unit type
+    .byte 8  # address_size
+    .4byte .LCU2_abbrev  # debug_abbrev_offset
+.LDW5_CU2_DIE1:
+    .uleb128 1  # abbreviation number
+    .4byte 0 # DW_AT_addr_base
+    .4byte 0 # DW_AT_rnglists_base
+.LDW5_CU2_end:
+
 
 .section .debug_str, "S", @progbits
 .Lstr_dummy1:
@@ -691,3 +717,11 @@ _start:
     .4byte .Lstr_int
     .4byte .Lstr_int_description
 .LCU1_str_offsets_end:
+
+.LCU2_str_offsets:
+    .4byte .LCU2_str_offsets_end - .LCU2_str_offsets_version # length
+.LCU2_str_offsets_version:
+    .2byte 5  # version
+    .2byte 0  # padding
+    .4byte .Lstr_dummy2
+.LCU2_str_offsets_end:
