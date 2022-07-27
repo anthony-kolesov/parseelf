@@ -12,9 +12,10 @@ _start:
     .long 0
 .Lend_start:
 
+
 .section .debug_abbrev, "", @progbits
 .LCU1_abbrev:
-    .uleb128 1  # code
+    .uleb128 1  # abbreviation number
     .uleb128 DW_TAG_compile_unit  # tag
     .byte DW_CHILDREN_yes
     # Attributes
@@ -56,7 +57,7 @@ _start:
     .uleb128 0
 
 .Lbase_type_abbrev:
-    .uleb128 2  # code
+    .uleb128 2  # abbreviation number
     .uleb128 DW_TAG_base_type  # tag
     .byte DW_CHILDREN_no  # has_children
     .uleb128 DW_AT_name
@@ -429,7 +430,7 @@ _start:
     .4byte .LDW5_CU1_end - .LDW5_CU1_version  # length, DWARF-32
 .LDW5_CU1_version:
     .2byte 5  # version
-    .byte DW_UT_compile  # unity type
+    .byte DW_UT_compile  # unit type
     .byte 8  # address_size
     .4byte .LCU1_abbrev  # debug_abbrev_offset
 
@@ -672,15 +673,6 @@ _start:
     .string "A DIE with all attributes."
 
 
-# Order of sections is important here, because when passed --dwarf objdump
-# iterates over sections and applies correct "section formatting" as it
-# encounters sections, but parse_elf.py instead iterates over options and prints
-# sections affected by the selected "formatter". Hence, when the option is just
-# --dwarf, and order of sections is .debug_str, .debug_str_offsets,
-# .debug_line_str, then objdump will print them in that order, while
-# parse_elf.py will print in order of .debug_str, .debug_line_str,
-# .debug_str_offsets. At this moment I don't want to bother with fixing this
-# discrepancy in algorithm, hence test cases shouldn't expose the difference.
 .section .debug_line_str, "S", @progbits
 .Lline_str1:
     .string "string1"

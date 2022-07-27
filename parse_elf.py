@@ -101,6 +101,7 @@ def create_parser() -> ArgumentParser:
             'str-offsets',
         ),
         action='append',
+        default=list(),
     )
     parser.add_argument(
         'input',
@@ -612,10 +613,8 @@ def hex_dump(
 
 def print_dwarf_rawline(
     elf_obj: elf.Elf,
+    debug_line: elf.Section,
 ) -> None:
-    debug_line = elf_obj.find_section('.debug_line')
-    if debug_line is None:
-        return
     print('Raw dump of debug contents of section .debug_line:\n')
 
     stream = BytesIO(elf_obj.section_content(debug_line.number))
@@ -675,10 +674,8 @@ def print_dwarf_rawline(
 
 def print_dwarf_decodedline(
     elf_obj: elf.Elf,
+    debug_line: elf.Section,
 ) -> None:
-    debug_line = elf_obj.find_section('.debug_line')
-    if debug_line is None:
-        return
     print('Contents of the .debug_line section:\n')
 
     stream = BytesIO(elf_obj.section_content(debug_line.number))
@@ -889,11 +886,8 @@ def _print_die_attribute(
 
 def print_dwarf_info(
     elf_obj: elf.Elf,
+    debug_info: elf.Section,
 ) -> None:
-    debug_info = elf_obj.find_section('.debug_info')
-    if debug_info is None:
-        return
-
     # .debug_str might be absent, if .debug_info doesn't reference it.
     # Pass an empty table in this case.
     debug_str_section = elf_obj.find_section('.debug_str')
@@ -944,6 +938,7 @@ def print_dwarf_info(
 
 def print_dwarf_abbrev(
     elf_obj: elf.Elf,
+    debug_abbrev: elf.Section,
 ) -> None:
     def print_abbrev(abbrev: dwarf.AbbreviationDeclaration) -> None:
         if abbrev.code == 1:
@@ -963,10 +958,7 @@ def print_dwarf_abbrev(
         for child in abbrev.children:
             print_abbrev(child)
 
-    debug_abbrev = elf_obj.find_section('.debug_abbrev')
-    if debug_abbrev is None:
-        return
-    print('Contents of the .debug_abbrev section:\n')
+    print(f'Contents of the {debug_abbrev.name} section:\n')
     stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     while not sr.at_eof:
@@ -977,10 +969,8 @@ def print_dwarf_abbrev(
 
 def print_dwarf_aranges(
     elf_obj: elf.Elf,
+    debug_aranges: elf.Section,
 ) -> None:
-    debug_aranges = elf_obj.find_section('.debug_aranges')
-    if debug_aranges is None:
-        return
     print(f'Contents of the {debug_aranges.name} section:\n')
     stream = BytesIO(elf_obj.section_content(debug_aranges.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
@@ -1052,6 +1042,7 @@ def _dwarf_frame_fde(
 
 def print_dwarf_frames(
     elf_obj: elf.Elf,
+    frame_section: elf.Section,
 ) -> None:
     def print_cie(cie: dwarf.CieRecord) -> None:
         fmt = dwarf.TargetFormatter(elf_obj.file_header.machine, cie.address_size)
@@ -1098,31 +1089,24 @@ def print_dwarf_frames(
                 print_fde(entry)
         print()
 
-    def print_frame_section(frame_section_name: str) -> None:
-        frame_section = elf_obj.find_section(frame_section_name)
-        if frame_section is None:
-            return
-
-        print(f'Contents of the {frame_section.name} section:\n')
-        stream = BytesIO(elf_obj.section_content(frame_section.number))
-        sr = dwarf.StreamReader(elf_obj.data_format, stream)
-        # I can't say I'm a fan of this `if`, but section parse functions don't
-        # have the same signature, which makes it difficult to extract common
-        # code into functions and unroll the loop without too much duplication.
-        # The quick return if the section is not found makes it even more
-        # difficult to unroll without duplication.
-        if frame_section_name == '.eh_frame':
-            records = dwarf.read_eh_frame(sr, frame_section.header.address)
-        else:
-            records = dwarf.read_dwarf_frame(sr)
-        print_records(records)
-
-    for section_name in ('.eh_frame', '.debug_frame'):
-        print_frame_section(section_name)
+    print(f'Contents of the {frame_section.name} section:\n')
+    stream = BytesIO(elf_obj.section_content(frame_section.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    # I can't say I'm a fan of this `if`, but section parse functions don't
+    # have the same signature, which makes it difficult to extract common
+    # code into functions and unroll the loop without too much duplication.
+    # The quick return if the section is not found makes it even more
+    # difficult to unroll without duplication.
+    if frame_section.name == '.eh_frame':
+        records = dwarf.read_eh_frame(sr, frame_section.header.address)
+    else:
+        records = dwarf.read_dwarf_frame(sr)
+    print_records(records)
 
 
 def print_dwarf_frames_interp(
     elf_obj: elf.Elf,
+    frame_section: elf.Section,
 ) -> None:
     def print_fde(
         fde: dwarf.FdeRecord,
@@ -1162,43 +1146,32 @@ def print_dwarf_frames_interp(
                 print_fde(entry, cie_cftables[entry.cie.offset])
         print()
 
-    def print_frame_section(frame_section_name: str) -> None:
-        frame_section = elf_obj.find_section(frame_section_name)
-        if frame_section is None:
-            return
-
-        print(f'Contents of the {frame_section.name} section:\n')
-        stream = BytesIO(elf_obj.section_content(frame_section.number))
-        sr = dwarf.StreamReader(elf_obj.data_format, stream)
-        if frame_section_name == '.eh_frame':
-            entries = dwarf.read_eh_frame(sr, frame_section.header.address)
-        else:
-            entries = dwarf.read_dwarf_frame(sr)
-        print_records(entries)
-
-    for section_name in ('.eh_frame', '.debug_frame'):
-        print_frame_section(section_name)
+    print(f'Contents of the {frame_section.name} section:\n')
+    stream = BytesIO(elf_obj.section_content(frame_section.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+    if frame_section.name == '.eh_frame':
+        entries = dwarf.read_eh_frame(sr, frame_section.header.address)
+    else:
+        entries = dwarf.read_dwarf_frame(sr)
+    print_records(entries)
 
 
 def print_dwarf_str(
     elf_obj: elf.Elf,
+    debug_str: elf.Section,
 ) -> None:
-    for section_name in ('.debug_str', '.debug_line_str'):
-        debug_str = elf_obj.find_section(section_name)
-        if debug_str is None:
-            continue
-        print(f'Contents of the {debug_str.name} section:\n')
-        debug_str_content = elf_obj.section_content(debug_str.number)
-        _dump_hex(debug_str_content)
-        print()
+    print(f'Contents of the {debug_str.name} section:\n')
+    debug_str_content = elf_obj.section_content(debug_str.number)
+    _dump_hex(debug_str_content)
+    print()
 
 
 def print_dwarf_str_offsets(
     elf_obj: elf.Elf,
+    debug_str_offsets: elf.Section,
 ) -> None:
     debug_str = elf_obj.find_section('.debug_str')
-    debug_str_offsets = elf_obj.find_section('.debug_str_offsets')
-    if debug_str_offsets is None or debug_str is None:
+    if debug_str is None:
         return
     print(f'Contents of the {debug_str_offsets.name} section:\n')
     stream = BytesIO(elf_obj.section_content(debug_str_offsets.number))
@@ -1256,24 +1229,39 @@ if __name__ == "__main__":
         string_dump(args.string_dump, elf_obj)
     if args.hex_dump:
         hex_dump(args.hex_dump, elf_obj)
-    if args.dwarf:
-        if 'frames' in args.dwarf:
-            print_dwarf_frames(elf_obj)
-        if 'frames-interp' in args.dwarf:
-            print_dwarf_frames_interp(elf_obj)
-        if 'aranges' in args.dwarf:
-            print_dwarf_aranges(elf_obj)
-        if 'info' in args.dwarf:
-            print_dwarf_info(elf_obj)
-        if 'abbrev' in args.dwarf:
-            print_dwarf_abbrev(elf_obj)
-        if 'rawline' in args.dwarf:
-            print_dwarf_rawline(elf_obj)
-        if 'decodedline' in args.dwarf:
-            print_dwarf_decodedline(elf_obj)
-        if 'str' in args.dwarf:
-            print_dwarf_str(elf_obj)
-        if 'str-offsets' in args.dwarf:
-            print_dwarf_str_offsets(elf_obj)
+
+    # Emulate objdump approach, where it iterates over sections and prints
+    # them if the type of debug information has been selected by the options.
+    # It is quite a lot of duplication with `'...' in args.dwarf` checks, but
+    # I wasn't able to come up with a way to minimize this duplication, that
+    # will look simple and also will be efficient, so opted for a simple and
+    # straightforward, if verbose, approach.
+    for debug_section in elf_obj.sections:
+        match debug_section.name:
+            case ('.eh_frame' | '.debug_frame'):
+                if 'frames' in args.dwarf:
+                    print_dwarf_frames(elf_obj, debug_section)
+                if 'frames-interp' in args.dwarf:
+                    print_dwarf_frames_interp(elf_obj, debug_section)
+            case '.debug_aranges':
+                if 'aranges' in args.dwarf:
+                    print_dwarf_aranges(elf_obj, debug_section)
+            case '.debug_info':
+                if 'info' in args.dwarf:
+                    print_dwarf_info(elf_obj, debug_section)
+            case '.debug_abbrev':
+                if 'abbrev' in args.dwarf:
+                    print_dwarf_abbrev(elf_obj, debug_section)
+            case '.debug_line':
+                if 'rawline' in args.dwarf:
+                    print_dwarf_rawline(elf_obj, debug_section)
+                if 'decodedline' in args.dwarf:
+                    print_dwarf_decodedline(elf_obj, debug_section)
+            case ('.debug_str' | '.debug_line_str'):
+                if 'str' in args.dwarf:
+                    print_dwarf_str(elf_obj, debug_section)
+            case '.debug_str_offsets':
+                if 'str-offsets' in args.dwarf:
+                    print_dwarf_str_offsets(elf_obj, debug_section)
 
     elf_file.close()
