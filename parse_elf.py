@@ -94,6 +94,7 @@ def create_parser() -> ArgumentParser:
             'decodedline',
             'info',
             'abbrev',
+            'addr',
             'aranges',
             'frames',
             'frames-interp',
@@ -732,6 +733,7 @@ def _format_die_attribute_value(
     cu: dwarf.CompilationUnit,
     debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
+    debug_addr: dwarf.AddressEntrySet,
 ) -> str:
     # A formatter for attributes that use an Enum that has a 'human_name' attribute.
     def human_name(typ: type, value: int, /, attr_name: str = 'human_name') -> str:
@@ -797,6 +799,9 @@ def _format_die_attribute_value(
     def strx_formatting(value: int) -> str:
         return f'(indexed string: {value:#x}): {debug_str_offsets.get(value)}'
 
+    def addrx_formatting(value: int) -> str:
+        return f'(index: {value:#x}): {debug_addr.entries[value]:x}'
+
     def indirect_formatting(form_id: int, value: int | bytes) -> str:
         return ' '.join((
             dwarf.FormEncoding(form_id).name,
@@ -808,6 +813,7 @@ def _format_die_attribute_value(
                 cu,
                 debug_str_offsets,
                 debug_line_strings,
+                debug_addr,
             )
         ))
 
@@ -841,10 +847,14 @@ def _format_die_attribute_value(
         dwarf.FormEncoding.DW_FORM_ref_sig8: lambda a: f'signature: {a + cu.offset:#x}',
         dwarf.FormEncoding.DW_FORM_indirect: lambda a: indirect_formatting(a[0], a[1]),
         dwarf.FormEncoding.DW_FORM_strx: strx_formatting,
+        dwarf.FormEncoding.DW_FORM_addrx: addrx_formatting,
         dwarf.FormEncoding.DW_FORM_line_strp: line_strp_formatting,
         dwarf.FormEncoding.DW_FORM_strx1: strx_formatting,
         dwarf.FormEncoding.DW_FORM_strx2: strx_formatting,
         dwarf.FormEncoding.DW_FORM_strx4: strx_formatting,
+        dwarf.FormEncoding.DW_FORM_addrx1: addrx_formatting,
+        dwarf.FormEncoding.DW_FORM_addrx2: addrx_formatting,
+        dwarf.FormEncoding.DW_FORM_addrx4: addrx_formatting,
     }
 
     # In most cases the printing format for a value is based on it's
@@ -867,6 +877,7 @@ def _print_die_attribute(
     cu: dwarf.CompilationUnit,
     debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
+    debug_addr: dwarf.AddressEntrySet,
 ) -> None:
     print(
         f'    <{attr.offset:x}>  ',
@@ -879,6 +890,7 @@ def _print_die_attribute(
             cu,
             debug_str_offsets,
             debug_line_strings,
+            debug_addr,
         ),
     )
 
@@ -895,6 +907,7 @@ def print_dwarf_info(
     else:
         debug_strings = elf.StringTable(b'\0')
 
+    # Debug string offsets.
     debug_str_offsets_section = elf_obj.find_section('.debug_str_offsets')
     if debug_str_offsets_section is not None:
         debug_str_offsets_stream = BytesIO(elf_obj.section_content(debug_str_offsets_section.number))
@@ -905,11 +918,23 @@ def print_dwarf_info(
     else:
         debug_str_offsets_table = {}
 
+    # Debug line strings
     debug_line_str_section = elf_obj.find_section('.debug_line_str')
     if debug_line_str_section is not None:
         debug_line_strings = elf_obj.strings(debug_line_str_section.number)
     else:
         debug_line_strings = elf.StringTable(b'\0')
+
+    # Debug addresses.
+    debug_addr_section = elf_obj.find_section('.debug_addr')
+    if debug_addr_section is not None:
+        debug_addr_stream = BytesIO(elf_obj.section_content(debug_addr_section.number))
+        debug_addr_sr = dwarf.StreamReader(elf_obj.data_format, debug_addr_stream)
+        debug_addr_table = {
+            t.base_offset: t for t in dwarf.AddressEntrySet.read(debug_addr_sr)
+        }
+    else:
+        debug_addr_table = {}
 
     # Read abbreviation data.
     debug_abbrev = elf_obj.find_section('.debug_abbrev')
@@ -933,11 +958,15 @@ def print_dwarf_info(
             cu.str_offsets_base(),
             dwarf.StringOffsetsEntrySet.empty(debug_strings),
         )
+        debug_addr = debug_addr_table.get(
+            cu.addr_base_value(),
+            dwarf.AddressEntrySet.empty(),
+        )
         for die in cu.die_entries:
             abbrev_name = f' ({die.tag.name})' if not die.is_null_entry else ''
             print(f' <{die.level}><{die.offset:x}>: Abbrev Number: {die.abbreviation_number}{abbrev_name}')
             for attr in die.attributes:
-                _print_die_attribute(elf_obj, attr, cu, debug_str_offsets, debug_line_strings)
+                _print_die_attribute(elf_obj, attr, cu, debug_str_offsets, debug_line_strings, debug_addr)
     print()
 
 
@@ -969,6 +998,40 @@ def print_dwarf_abbrev(
     while not sr.at_eof:
         for abbrev in dwarf.AbbreviationDeclaration.read(sr):
             print_abbrev(abbrev)
+    print()
+
+
+def print_dwarf_addr(
+    elf_obj: elf.Elf,
+    debug_addr: elf.Section,
+) -> None:
+    print(f'Contents of the {debug_addr.name} section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_addr.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+
+    # Objdump prints information about CUs that reference address entry sets.
+    debug_abbrev = elf_obj.find_section('.debug_abbrev')
+    assert debug_abbrev is not None
+    debug_abbrev_stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
+    debug_abbrev_sr = dwarf.StreamReader(elf_obj.data_format, debug_abbrev_stream)
+
+    debug_info = elf_obj.find_section('.debug_info')
+    assert debug_info is not None
+    debug_info_stream = BytesIO(elf_obj.section_content(debug_info.number))
+    debug_info_sr = dwarf.StreamReader(elf_obj.data_format, debug_info_stream)
+    compile_units = {cu.addr_base_value(): cu for cu in dwarf.CompilationUnit.read(debug_info_sr, debug_abbrev_sr)}
+
+    for addr_entry_set in dwarf.AddressEntrySet.read(sr):
+        cu = compile_units.get(addr_entry_set.base_offset, None)
+        if cu is None:
+            print(f"Can't find a CU for address range with base offset {addr_entry_set.base_offset:#x}")
+            continue
+
+        print(f'  For compilation unit at offset {cu.offset:#x}:')
+        print('\tIndex	Address')
+        address_format = f'0{addr_entry_set.address_size * 2}x'
+        for index, address in enumerate(addr_entry_set.entries):
+            print(f'\t{index}:\t{address:{address_format}} ')  # Trailing whitespace to emulate objdump output.
     print()
 
 
@@ -1257,6 +1320,9 @@ if __name__ == "__main__":
             case '.debug_abbrev':
                 if 'abbrev' in args.dwarf:
                     print_dwarf_abbrev(elf_obj, debug_section)
+            case '.debug_addr':
+                if 'addr' in args.dwarf:
+                    print_dwarf_addr(elf_obj, debug_section)
             case '.debug_line':
                 if 'rawline' in args.dwarf:
                     print_dwarf_rawline(elf_obj, debug_section)

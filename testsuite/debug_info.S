@@ -386,8 +386,8 @@ _start:
     # DWARFv5
     .uleb128 DW_AT_default_value
     .uleb128 DW_FORM_strx
-    # .uleb128 DW_AT_default_value  # debug_addr
-    # .uleb128 DW_FORM_addrx        # debug_addr
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_addrx
     # .uleb128 DW_FORM_ref_sup4  # Can't test - needs a supplementary file.
     # .uleb128 DW_FORM_strp_sup  # Can't test - needs a supplementary file.
     # .uleb128 DW_FORM_data16  # 16-byte integers not supported.
@@ -408,13 +408,13 @@ _start:
     # .uleb128 DW_FORM_strx3  # 3-byte integers not supported.
     .uleb128 DW_AT_default_value
     .uleb128 DW_FORM_strx4
-    # .uleb128 DW_AT_default_value  # debug_addr
-    # .uleb128 DW_FORM_addrx1       # debug_addr
-    # .uleb128 DW_AT_default_value  # debug_addr
-    # .uleb128 DW_FORM_addrx2       # debug_addr
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_addrx1
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_addrx2
     # .uleb128 DW_FORM_addrx3  # 3-byte integers not supported.
-    # .uleb128 DW_AT_default_value  # debug_addr
-    # .uleb128 DW_FORM_addrx4       # debug_addr
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_addrx4
     .uleb128 0  # End of .Lall_forms_abbrev abbreviation.
     .uleb128 0
 
@@ -465,7 +465,7 @@ _start:
     # least: 4 bytes for length in DWARF32, 4 bytes for header. DWARF64 would
     # have 12 bytes for length.
     .4byte 8  # DW_AT_str_offsets_base
-    .4byte 0  # DW_AT_addr_base, TODO: put meaningful value here.
+    .4byte .Ldebug_addr1_base  # DW_AT_addr_base
     .4byte 0  # DW_AT_rnglists_base, TODO: put meaningful value here.
     .4byte 0 # DW_AT_loclists_base, TODO: put meaningful value here.
 
@@ -645,15 +645,15 @@ _start:
     # DW_FORM_flag_present - implicit value.
     .8byte 0xc0f0a5af11223344  # DW_FORM_ref_sig8 - not supported yet
     .uleb128 1  # DW_FORM_strx
-    # .uleb128 1  # DW_FORM_addrx
+    .uleb128 1  # DW_FORM_addrx
     .4byte .Lline_str1 + 2  #  DW_FORM_line_strp (offset in the middle of the string)
     # DW_FORM_implicit_const - implicit value.
     .byte 1  # DW_FORM_strx1
     .2byte 1  # DW_FORM_strx2
     .4byte 1  # DW_FORM_strx4
-    # .byte 1  # DW_FORM_addrx1
-    # .2byte 1  # DW_FORM_addrx2
-    # .4byte 1  # DW_FORM_addrx4
+    .byte 1  # DW_FORM_addrx1
+    .2byte 1  # DW_FORM_addrx2
+    .4byte 1  # DW_FORM_addrx4
 .LDW5_base_type_DIE2:
     .uleb128 2  # abbreviation number
     .byte 3  # DW_AT_name
@@ -663,6 +663,7 @@ _start:
     .byte DW_END_little  # DW_AT_endianity
 
     .uleb128  0 # End of DIE entries
+    .uleb128  0 # End of CU
 .LDW5_CU1_end:
 
 .LDW5_CU2_start:
@@ -674,8 +675,13 @@ _start:
     .4byte .LCU2_abbrev  # debug_abbrev_offset
 .LDW5_CU2_DIE1:
     .uleb128 1  # abbreviation number
-    .4byte 0 # DW_AT_addr_base
+    .4byte .Ldebug_addr2_base  # DW_AT_addr_base
     .4byte 0 # DW_AT_rnglists_base
+    # Should we have a `.uleb128 0` here for the CU end? Yes, however the issue
+    # is that objdump treats those entries as alignment fillers and doesn't
+    # print them at all. I don't want to bother with implementing same logic in
+    # parse_elf, so to ensure similar output has to forgo zero abbreviation
+    # entry.
 .LDW5_CU2_end:
 
 
@@ -724,3 +730,28 @@ _start:
     .2byte 0  # padding
     .4byte .Lstr_dummy2
 .LCU2_str_offsets_end:
+
+
+.section .debug_addr, "", @progbits
+# CU1
+    .4byte .Ldebug_addr1_end - .Ldebug_addr1_hdr_version  # length (DWARF32)
+.Ldebug_addr1_hdr_version:
+    .2byte 5  # version
+    .byte 8  # address_size
+    .byte 0  # segment selector size
+.Ldebug_addr1_base:
+    .8byte 0x1200  # start1
+    .8byte 0x1210  # end1
+    .8byte 0x1220  # start2
+    .8byte 0x00100200  # base1
+.Ldebug_addr1_end:
+# CU2
+    .4byte 0xffffffff  # length (DWARF64)
+    .8byte .Ldebug_addr2_end - .Ldebug_addr2_hdr_version
+.Ldebug_addr2_hdr_version:
+    .2byte 5  # version
+    .byte 8  # address_size
+    .byte 0  # segment selector size
+.Ldebug_addr2_base:
+    .8byte 0xdeadbeef
+.Ldebug_addr2_end:

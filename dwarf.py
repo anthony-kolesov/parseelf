@@ -39,6 +39,7 @@ from collections import ChainMap
 import collections.abc
 import dataclasses
 from enum import Enum
+import functools
 from io import BytesIO, SEEK_CUR
 import logging
 from typing import BinaryIO, final, Iterable, Iterator, Literal, Mapping, \
@@ -2491,23 +2492,27 @@ class CompilationUnit:
                 die_entries,
             )
 
+    def attribute_value(self, attr_type: AttributeEncoding, default: _T) -> _T:
+        # First entry must be a full compilation unit for now.
+        # Attributes can be in partial CUs and types, but for now
+        # those are not supported by this program.
+        die_entry = self.die_entries[0]
+        assert die_entry.tag == TagEncoding.DW_TAG_compile_unit
+
+        attribute = next((a for a in die_entry.attributes if a.attribute == attr_type), None)
+        if attribute is None:
+            return default
+        # For simplicity just assert the assumption.
+        assert isinstance(attribute.value, type(default))
+        return attribute.value
+
     def str_offsets_base(self) -> int:
         """Return a value of the CUs DW_AT_str_offsets_base attribute or 0 if not present."""
-        # First entry must be a full compilation unit for now.
-        # str_offsets_base also can be in partial CUs and types, but for now
-        # those are not supported by this program.
-        cu_entrie = self.die_entries[0]
-        assert cu_entrie.tag == TagEncoding.DW_TAG_compile_unit
+        return self.attribute_value(AttributeEncoding.DW_AT_str_offsets_base, 0)
 
-        def find_attribute(attr_type: AttributeEncoding) -> DieAttributeValue | None:
-            # For simplicity let Python raise exception if attribute not found.
-            return next((a for a in cu_entrie.attributes if a.attribute == attr_type), None)
-        str_offsets_base_attr = find_attribute(AttributeEncoding.DW_AT_str_offsets_base)
-        if str_offsets_base_attr is None:
-            return 0
-        # For simplicity just assert the assumption.
-        assert isinstance(str_offsets_base_attr.value, int)
-        return str_offsets_base_attr.value
+    def addr_base_value(self) -> int:
+        """Return a value of the CUs DW_AT_attr_base attribute or 0 if not present."""
+        return self.attribute_value(AttributeEncoding.DW_AT_addr_base, 0)
 
 
 #
@@ -2681,3 +2686,39 @@ class StringOffsetsEntrySet:
     def empty(strings: StringTable) -> 'StringOffsetsEntrySet':
         """Return a string offset table that has no offsets."""
         return StringOffsetsEntrySet(tuple(), strings, 0, 5, 4, 0)
+
+
+#
+# .debug_addr
+#
+@dataclasses.dataclass(frozen=True)
+class AddressEntrySet:
+    length: int
+    version: int
+    address_size: int
+    segment_selector_size: int
+    entries: Sequence[int]
+    "Addresses"
+    base_offset: int
+    "Base offset, specified in DW_AT_addr_base."
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterable['AddressEntrySet']:
+        while not sr.at_eof:
+            length = sr.length()
+            end_position = sr.current_position + length
+            version = sr.uint2()
+            if version != 5:
+                logging.error('.debug_addr contains entry of unsupported version %s', version)
+            assert version == 5
+            address_size = sr.uint1()
+            segment_selector_size = sr.uint1()
+            assert segment_selector_size == 0, "Non-zero segment selector size is not supported by this tool."
+            base_offset = sr.current_position
+            addresses = tuple(sr.read_until(end_position, functools.partial(StreamReader.uint, sz=address_size)))
+            yield AddressEntrySet(length, version, address_size, segment_selector_size, addresses, base_offset)
+
+    @staticmethod
+    def empty() -> 'AddressEntrySet':
+        """Return a string offset table that has no offsets."""
+        return AddressEntrySet(0, 8, 8, 0, tuple(), 0)
