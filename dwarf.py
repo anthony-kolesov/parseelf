@@ -2492,16 +2492,19 @@ class CompilationUnit:
             )
 
     def str_offsets_base(self) -> int:
+        """Return a value of the CUs DW_AT_str_offsets_base attribute or 0 if not present."""
         # First entry must be a full compilation unit for now.
         # str_offsets_base also can be in partial CUs and types, but for now
         # those are not supported by this program.
         cu_entrie = self.die_entries[0]
         assert cu_entrie.tag == TagEncoding.DW_TAG_compile_unit
 
-        def find_attribute(attr_type: AttributeEncoding) -> DieAttributeValue:
+        def find_attribute(attr_type: AttributeEncoding) -> DieAttributeValue | None:
             # For simplicity let Python raise exception if attribute not found.
-            return next((a for a in cu_entrie.attributes if a.attribute == attr_type))
+            return next((a for a in cu_entrie.attributes if a.attribute == attr_type), None)
         str_offsets_base_attr = find_attribute(AttributeEncoding.DW_AT_str_offsets_base)
+        if str_offsets_base_attr is None:
+            return 0
         # For simplicity just assert the assumption.
         assert isinstance(str_offsets_base_attr.value, int)
         return str_offsets_base_attr.value
@@ -2624,7 +2627,7 @@ class StringOffsetEntry(NamedTuple):
 
 
 @dataclasses.dataclass(frozen=True)
-class StringOffsetsTable:
+class StringOffsetsEntrySet:
     """A representation of .debug_str_offsets contents.
 
     Stores an array of offsets into .debug_str section."""
@@ -2633,10 +2636,11 @@ class StringOffsetsTable:
     strings: StringTable
     table_length_in_bytes: int
     version: int
-    header_length: int
     item_size: Literal[4, 8]
+    base_offset: int
+    """The section offset of the first entry - the value referenced by DW_AT_str_offsets_base."""
 
-    def get(self, str_offsets_base: int, index: int) -> str:
+    def get(self, index: int) -> str:
         """Return a string for the specified str_offset base and index.
 
         As per specification str_offsets_base is the offset of the zero-index
@@ -2644,8 +2648,7 @@ class StringOffsetsTable:
         zero, at least 8 byte for DWARF32 to accound for length and header, 16
         for DWARF64."""
         # Subtract header length from the str_offset base, then it can be divided by the item size.
-        str_offsets_base -= self.header_length
-        str_offset = self.offsets[str_offsets_base // self.item_size + index]
+        str_offset = self.offsets[index]
         return self.strings[str_offset]
 
     def __iter__(self) -> Iterator[StringOffsetEntry]:
@@ -2656,27 +2659,25 @@ class StringOffsetsTable:
         return len(self.offsets)
 
     @staticmethod
-    def read(sr: StreamReader, strings: StringTable) -> 'StringOffsetsTable':
+    def read(sr: StreamReader, strings: StringTable) -> Iterable['StringOffsetsEntrySet']:
         """Read the string offsets table.
 
         `sr` is the stream reader from which to read the offsets table.
-        `strings` is the strings table into which the offset table points to.
-
-        It is assumed that stream reader contains exactly one string offset table,
-        since it seems that this is what is assumed by the DWARFv5 standard."""
-        length = sr.length()
-        end_position = sr.current_position + length
-        version = sr.uint2()
-        if version != 5:
-            logging.error('.debug_str_offset contains entry of unsupported version %s', version)
-        assert version == 5
-        sr.uint2()  # padding
-        header_length = sr.current_position
-        item_size: Literal[4, 8] = 4 if sr.is_dwarf32 else 8
-        offsets = tuple(sr.read_until(end_position, StreamReader.offset))
-        return StringOffsetsTable(offsets, strings, length, version, header_length, item_size)
+        `strings` is the strings table into which the offset table points to."""
+        while not sr.at_eof:
+            length = sr.length()
+            end_position = sr.current_position + length
+            version = sr.uint2()
+            if version != 5:
+                logging.error('.debug_str_offset contains entry of unsupported version %s', version)
+            assert version == 5
+            sr.uint2()  # padding
+            base_offset = sr.current_position
+            item_size: Literal[4, 8] = 4 if sr.is_dwarf32 else 8
+            offsets = tuple(sr.read_until(end_position, StreamReader.offset))
+            yield StringOffsetsEntrySet(offsets, strings, length, version, item_size, base_offset)
 
     @staticmethod
-    def empty(strings: StringTable) -> 'StringOffsetsTable':
+    def empty(strings: StringTable) -> 'StringOffsetsEntrySet':
         """Return a string offset table that has no offsets."""
-        return StringOffsetsTable(tuple(), strings, 0, 5, 0, 4)
+        return StringOffsetsEntrySet(tuple(), strings, 0, 5, 4, 0)

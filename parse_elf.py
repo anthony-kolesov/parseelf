@@ -730,7 +730,7 @@ def _format_die_attribute_value(
     form: dwarf.FormEncoding,
     value: int | bytes,
     cu: dwarf.CompilationUnit,
-    debug_str_offsets: dwarf.StringOffsetsTable,
+    debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
 ) -> str:
     # A formatter for attributes that use an Enum that has a 'human_name' attribute.
@@ -795,8 +795,7 @@ def _format_die_attribute_value(
         return f'(indirect line string, offset: {value:#x}): {debug_line_strings[value]}'
 
     def strx_formatting(value: int) -> str:
-        base = cu.str_offsets_base()
-        return f'(indexed string: {value:#x}): {debug_str_offsets.get(base, value)}'
+        return f'(indexed string: {value:#x}): {debug_str_offsets.get(value)}'
 
     def indirect_formatting(form_id: int, value: int | bytes) -> str:
         return ' '.join((
@@ -866,7 +865,7 @@ def _print_die_attribute(
     elf_obj: elf.Elf,
     attr: dwarf.DieAttributeValue,
     cu: dwarf.CompilationUnit,
-    debug_str_offsets: dwarf.StringOffsetsTable,
+    debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
 ) -> None:
     print(
@@ -900,10 +899,11 @@ def print_dwarf_info(
     if debug_str_offsets_section is not None:
         debug_str_offsets_stream = BytesIO(elf_obj.section_content(debug_str_offsets_section.number))
         debug_str_offsets_sr = dwarf.StreamReader(elf_obj.data_format, debug_str_offsets_stream)
-        debug_str_offsets = dwarf.StringOffsetsTable.read(debug_str_offsets_sr, debug_strings)
+        debug_str_offsets_table = {
+            t.base_offset: t for t in dwarf.StringOffsetsEntrySet.read(debug_str_offsets_sr, debug_strings)
+        }
     else:
-        # Empty offset table.
-        debug_str_offsets = dwarf.StringOffsetsTable.empty(debug_strings)
+        debug_str_offsets_table = {}
 
     debug_line_str_section = elf_obj.find_section('.debug_line_str')
     if debug_line_str_section is not None:
@@ -928,6 +928,11 @@ def print_dwarf_info(
             print(f'   Unit Type:     {cu.unit_type.name} ({cu.unit_type.value})')
         print(f'   Abbrev Offset: {cu.debug_abbrev_offset:#x}')
         print(f'   Pointer Size:  {cu.address_size}')
+        # Get str_offsets entries for this CU.
+        debug_str_offsets = debug_str_offsets_table.get(
+            cu.str_offsets_base(),
+            dwarf.StringOffsetsEntrySet.empty(debug_strings),
+        )
         for die in cu.die_entries:
             abbrev_name = f' ({die.tag.name})' if not die.is_null_entry else ''
             print(f' <{die.level}><{die.offset:x}>: Abbrev Number: {die.abbreviation_number}{abbrev_name}')
@@ -1177,12 +1182,12 @@ def print_dwarf_str_offsets(
     stream = BytesIO(elf_obj.section_content(debug_str_offsets.number))
     sr = dwarf.StreamReader(elf_obj.data_format, stream)
     strings = elf_obj.strings(debug_str.number)
-    str_offsets = dwarf.StringOffsetsTable.read(sr, strings)
-    print(f'    Length: {str_offsets.table_length_in_bytes:#x}')
-    print(f'    Version: {str_offsets.version:#x}')
-    print('       Index   Offset [String]')
-    for index, offset, string in str_offsets:
-        print(f'{index:12} {offset:8x} {string}')
+    for str_offsets in dwarf.StringOffsetsEntrySet.read(sr, strings):
+        print(f'    Length: {str_offsets.table_length_in_bytes:#x}')
+        print(f'    Version: {str_offsets.version:#x}')
+        print('       Index   Offset [String]')
+        for index, offset, string in str_offsets:
+            print(f'{index:12} {offset:8x} {string}')
 
 
 if __name__ == "__main__":

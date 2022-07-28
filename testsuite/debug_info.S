@@ -463,11 +463,10 @@ _start:
     # DW_AT_str_offsets_base should be a section offset that points to a first
     # entry in the table, entry specific to this CU. This value would be 8 at
     # least: 4 bytes for length in DWARF32, 4 bytes for header. DWARF64 would
-    # have 12 bytes for length. In this example I use DWARF32 and skip the
-    # first entry.
-    .4byte 12  # DW_AT_str_offsets_base
-    .4byte 0 # DW_AT_addr_base, TODO: put meaningful value here.
-    .4byte 0 # DW_AT_rnglists_base, TODO: put meaningful value here.
+    # have 12 bytes for length.
+    .4byte 8  # DW_AT_str_offsets_base
+    .4byte 0  # DW_AT_addr_base, TODO: put meaningful value here.
+    .4byte 0  # DW_AT_rnglists_base, TODO: put meaningful value here.
     .4byte 0 # DW_AT_loclists_base, TODO: put meaningful value here.
 
 .LDW5_base_type_DIE:
