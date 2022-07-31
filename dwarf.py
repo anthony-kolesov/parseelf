@@ -1911,6 +1911,7 @@ class LineNumberStateMachine:
         """Append a new row to the table based on current state of registers."""
         self.__rows.append(LineNumberStateRow(
             self.address,
+            self.op_index,
             self.file,
             self.line,
             self.column,
@@ -1920,6 +1921,7 @@ class LineNumberStateMachine:
             self.prologue_end,
             self.epilogue_begins,
             self.isa,
+            self.discriminator,
         ))
 
     @property
@@ -2514,6 +2516,10 @@ class CompilationUnit:
         """Return a value of the CUs DW_AT_attr_base attribute or 0 if not present."""
         return self.attribute_value(AttributeEncoding.DW_AT_addr_base, 0)
 
+    def range_lists_base_value(self) -> int:
+        """Return a value of the CUs DW_AT_rnglists_base attribute or 0 if not present."""
+        return self.attribute_value(AttributeEncoding.DW_AT_rnglists_base, 0)
+
 
 #
 # .debug_abbrev
@@ -2722,3 +2728,110 @@ class AddressEntrySet:
     def empty() -> 'AddressEntrySet':
         """Return a string offset table that has no offsets."""
         return AddressEntrySet(0, 8, 8, 0, tuple(), 0)
+
+
+#
+# .debug_rnglist
+#
+class RangeListEntryKind(Enum):
+    DW_RLE_end_of_list = 0x00
+    DW_RLE_base_addressx = 0x01
+    DW_RLE_startx_endx = 0x02
+    DW_RLE_startx_length = 0x03
+    DW_RLE_offset_pair = 0x04
+    DW_RLE_base_address = 0x05
+    DW_RLE_start_end = 0x06
+    DW_RLE_start_length = 0x07
+
+
+@dataclasses.dataclass(frozen=True)
+class RangeListEntry:
+    kind: RangeListEntryKind
+    operands: tuple
+    section_offset: int
+
+    @staticmethod
+    def read1(sr: StreamReader, address_size: int) -> 'RangeListEntry':
+        section_offset = sr.current_position
+        kind = RangeListEntryKind(sr.uint1())
+        match kind:
+            case RangeListEntryKind.DW_RLE_end_of_list:
+                # do nothing.
+                operands: tuple = tuple()
+            case RangeListEntryKind.DW_RLE_base_addressx:
+                operands = (sr.uleb128(), )
+            case RangeListEntryKind.DW_RLE_startx_endx:
+                operands = (sr.uleb128(), sr.uleb128())
+            case RangeListEntryKind.DW_RLE_startx_length:
+                operands = (sr.uleb128(), sr.uleb128())
+            case RangeListEntryKind.DW_RLE_offset_pair:
+                operands = (sr.uleb128(), sr.uleb128())
+            case RangeListEntryKind.DW_RLE_base_address:
+                operands = (sr.uint(address_size), )
+            case RangeListEntryKind.DW_RLE_start_end:
+                operands = (sr.uint(address_size), sr.uint(address_size))
+            case RangeListEntryKind.DW_RLE_start_length:
+                operands = (sr.uint(address_size), sr.uleb128())
+        return RangeListEntry(kind, operands, section_offset)
+
+    @staticmethod
+    def read(sr: StreamReader, address_size: int) -> Iterable['RangeListEntry']:
+        while not sr.at_eof:
+            entry = RangeListEntry.read1(sr, address_size)
+            yield entry
+            if entry.kind == RangeListEntryKind.DW_RLE_end_of_list:
+                break
+
+
+@dataclasses.dataclass(frozen=True)
+class RangelListEntrySet:
+    offset: int
+    """Offset of the header in the .debug_rnglists section."""
+    length: int
+    version: int
+    address_size: int
+    segment_selector_size: int
+    offsets: Sequence[int]
+    entries: Sequence[Sequence[RangeListEntry]]
+    base_offset: int
+    "Base offset, specified in DW_AT_rnglists_base."
+    entries_base_offset: int
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterable['RangelListEntrySet']:
+        while not sr.at_eof:
+            offset = sr.current_position
+            length = sr.length()
+            end_position = sr.current_position + length
+            version = sr.uint2()
+            if version != 5:
+                logging.error('.debug_rnglists contains entry of unsupported version %s', version)
+            assert version == 5
+            address_size = sr.uint1()
+            segment_selector_size = sr.uint1()
+            assert segment_selector_size == 0, "Non-zero segment selector size is not supported by this tool."
+            offset_entry_count = sr.uint4()
+            base_offset = sr.current_position
+            offsets = tuple(sr.offset() for _ in range(offset_entry_count))
+            entries: list[Sequence[RangeListEntry]] = []
+            entries_base_offset = sr.current_position
+            for entry_offset in offsets:
+                sr.set_abs_position(entry_offset)
+                entries.append(list(RangeListEntry.read(sr, address_size)))
+            yield RangelListEntrySet(
+                offset,
+                length,
+                version,
+                address_size,
+                segment_selector_size,
+                offsets,
+                entries,
+                base_offset,
+                entries_base_offset,
+            )
+            sr.set_abs_position(end_position)
+
+    @staticmethod
+    def empty() -> 'RangelListEntrySet':
+        """Return a string offset table that has no offsets."""
+        return RangelListEntrySet(0, 0, 8, 8, 0, tuple(), tuple(), 0, 0)

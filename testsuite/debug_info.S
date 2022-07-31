@@ -211,8 +211,8 @@ _start:
     .uleb128 DW_FORM_flag
     .uleb128 DW_AT_extension
     .uleb128 DW_FORM_ref4
-    # .uleb128 DW_AT_ranges
-    # .uleb128 DW_FORM_rnglistx
+    .uleb128 DW_AT_ranges
+    .uleb128 DW_FORM_rnglistx
     .uleb128 DW_AT_trampoline
     .uleb128 DW_FORM_flag
     .uleb128 DW_AT_call_column
@@ -271,11 +271,8 @@ _start:
     .uleb128 DW_AT_rank
     .uleb128 DW_FORM_data1
     # .uleb128 DW_AT_str_offsets_base - duplicates CU attribute
-    # .uleb128 DW_FORM_sec_offset
-    # .uleb128 DW_AT_addr_base
-    # .uleb128 DW_FORM_sec_offset
-    # .uleb128 DW_AT_rnglists_base
-    # .uleb128 DW_FORM_sec_offset
+    # .uleb128 DW_AT_addr_base - duplicates CU attribute
+    # .uleb128 DW_AT_rnglists_base - duplicates CU attribute
     # .uleb128 DW_AT_dwo_name - can't test it, requires DWO support.
     # .uleb128 DW_FORM_string
     .uleb128 DW_AT_reference
@@ -398,8 +395,8 @@ _start:
     .uleb128 0x5a  # implicit constant value.
     # .uleb128 DW_AT_default_value  # debug_loclists
     # .uleb128 DW_FORM_loclistx     # debug_loclists
-    # .uleb128 DW_AT_default_value  # debug_rnglists
-    # .uleb128 DW_FORM_rnglistx     # debug_rnglists
+    .uleb128 DW_AT_default_value  # debug_rnglists
+    .uleb128 DW_FORM_rnglistx     # debug_rnglists
     # .uleb128 DW_FORM_ref_sup8  # Can't test - needs a supplementary file.
     .uleb128 DW_AT_default_value
     .uleb128 DW_FORM_strx1
@@ -466,7 +463,7 @@ _start:
     # have 12 bytes for length.
     .4byte 8  # DW_AT_str_offsets_base
     .4byte .Ldebug_addr1_base  # DW_AT_addr_base
-    .4byte 0  # DW_AT_rnglists_base, TODO: put meaningful value here.
+    .4byte .LRL1_base  # DW_AT_rnglists_base
     .4byte 0 # DW_AT_loclists_base, TODO: put meaningful value here.
 
 .LDW5_base_type_DIE:
@@ -557,6 +554,7 @@ _start:
     .8byte _start  # DW_AT_entry_pc
     .byte 1  # DW_AT_use_UTF8
     .4byte .LDW5_base_type_DIE  # DW_AT_extension
+    .uleb128 1  # DW_AT_ranges (.LRL1_entry1)
     .byte 1  # DW_AT_trampoline
     .byte 2  # DW_AT_call_column
     .byte 1  # DW_AT_call_file
@@ -585,8 +583,6 @@ _start:
     .byte 1  # DW_AT_string_length_bit_size
     .byte 1  # DW_AT_string_length_byte_size
     .byte 3  # DW_AT_rank
-    # .4byte 8  # DW_AT_addr_base
-    # .4byte 8  # DW_AT_rnglists_base
     # .string "all_attributes_dwo"  # DW_AT_dwo_name
     .byte 1  # DW_AT_reference
     .byte 1  # DW_AT_rvalue_reference
@@ -648,6 +644,7 @@ _start:
     .uleb128 1  # DW_FORM_addrx
     .4byte .Lline_str1 + 2  #  DW_FORM_line_strp (offset in the middle of the string)
     # DW_FORM_implicit_const - implicit value.
+    .uleb128 2  # DW_FORM_rnglistx (.LRL1_entry2)
     .byte 1  # DW_FORM_strx1
     .2byte 1  # DW_FORM_strx2
     .4byte 1  # DW_FORM_strx4
@@ -676,7 +673,7 @@ _start:
 .LDW5_CU2_DIE1:
     .uleb128 1  # abbreviation number
     .4byte .Ldebug_addr2_base  # DW_AT_addr_base
-    .4byte 0 # DW_AT_rnglists_base
+    .4byte .LRL2_base  # DW_AT_rnglists_base
     # Should we have a `.uleb128 0` here for the CU end? Yes, however the issue
     # is that objdump treats those entries as alignment fillers and doesn't
     # print them at all. I don't want to bother with implementing same logic in
@@ -755,3 +752,110 @@ _start:
 .Ldebug_addr2_base:
     .8byte 0xdeadbeef
 .Ldebug_addr2_end:
+
+
+.section .debug_rnglists, "", @progbits
+.LRL1:
+    .4byte .LRL1_end - .LRL1_start  # length (DWARF32)
+.LRL1_start:
+    .2byte 5  # version
+    .byte 8  # address_size
+    .byte 0  # segment selector size
+# Offsets:
+    .4byte 3  # offset_entry_count
+.LRL1_base:
+    .4byte .LRL1_entry0
+    .4byte .LRL1_entry1
+    .4byte .LRL1_entry2
+# Enties:
+.LRL1_entry0:
+    .byte DW_RLE_end_of_list
+.LRL1_entry1:
+    .byte DW_RLE_start_end
+    .8byte 0x1000
+    .8byte 0x1010
+    .byte DW_RLE_start_length
+    .8byte 0x1020
+    .uleb128 0x10
+    .byte DW_RLE_end_of_list
+.LRL1_entry2:
+    .byte DW_RLE_start_end
+    .8byte 0x2000
+    .8byte 0x2010
+    .byte DW_RLE_start_length
+    .8byte 0x2020
+    .uleb128 0x10
+    .byte DW_RLE_offset_pair
+    .uleb128 0x2040
+    .uleb128 0x2050
+    .byte DW_RLE_startx_length
+    .uleb128 2
+    .uleb128 0x10
+    .byte DW_RLE_startx_endx
+    .uleb128 0
+    .uleb128 1
+    .byte DW_RLE_base_address
+    .8byte 0x00100000
+    .byte DW_RLE_start_end
+    .8byte 0x2100
+    .8byte 0x2110
+    .byte DW_RLE_start_length
+    .8byte 0x2120
+    .uleb128 0x10
+    .byte DW_RLE_offset_pair
+    .uleb128 0x2040
+    .uleb128 0x2050
+    .byte DW_RLE_base_addressx
+    .uleb128 3
+    .byte DW_RLE_offset_pair
+    .uleb128 0x2060
+    .uleb128 0x2070
+    .byte DW_RLE_end_of_list
+.LRL1_end:
+.LRL2:
+    .4byte .LRL2_end - .LRL2_start  # length (DWARF32)
+.LRL2_start:
+    .2byte 5  # version
+    .byte 8  # address_size
+    .byte 0  # segment selector size
+# Offsets:
+    .4byte 4  # offset_entry_count
+.LRL2_base:
+    .4byte .LRL2_entry0
+    .4byte .LRL2_entry1
+    .4byte .LRL2_entry2
+    .4byte .LRL2_entry3
+# Enties:
+.LRL2_entry0:
+    .byte DW_RLE_start_end
+    .8byte 0x1000
+    .8byte 0x1010
+    .byte DW_RLE_start_length
+    .8byte 0x1020
+    .uleb128 0x10
+    .byte DW_RLE_end_of_list
+.LRL2_entry1:
+    .byte DW_RLE_start_end
+    .8byte 0x1000
+    .8byte 0x1010
+    .byte DW_RLE_start_length
+    .8byte 0x1020
+    .uleb128 0x10
+    .byte DW_RLE_end_of_list
+.LRL2_entry2:
+    .byte DW_RLE_start_end
+    .8byte 0x1000
+    .8byte 0x1010
+    .byte DW_RLE_start_length
+    .8byte 0x1020
+    .uleb128 0x10
+    .byte DW_RLE_end_of_list
+.LRL2_entry3:
+    .byte DW_RLE_start_end
+    .8byte 0x1000
+    .8byte 0x1010
+    .byte DW_RLE_start_length
+    .8byte 0x1020
+    .uleb128 0x10
+    .byte DW_RLE_end_of_list
+.LRL2_end:

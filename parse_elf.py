@@ -98,6 +98,7 @@ def create_parser() -> ArgumentParser:
             'aranges',
             'frames',
             'frames-interp',
+            'ranges',
             'str',
             'str-offsets',
         ),
@@ -734,6 +735,7 @@ def _format_die_attribute_value(
     debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
     debug_addr: dwarf.AddressEntrySet,
+    debug_rnglists: dwarf.RangelListEntrySet,
 ) -> str:
     # A formatter for attributes that use an Enum that has a 'human_name' attribute.
     def human_name(typ: type, value: int, /, attr_name: str = 'human_name') -> str:
@@ -802,6 +804,10 @@ def _format_die_attribute_value(
     def addrx_formatting(value: int) -> str:
         return f'(index: {value:#x}): {debug_addr.entries[value]:x}'
 
+    def rnglistx_formatting(value: int) -> str:
+        offset = debug_rnglists.offsets[value]
+        return f'(index: {value:#x}): {offset + debug_rnglists.base_offset:x}'
+
     def indirect_formatting(form_id: int, value: int | bytes) -> str:
         return ' '.join((
             dwarf.FormEncoding(form_id).name,
@@ -814,6 +820,7 @@ def _format_die_attribute_value(
                 debug_str_offsets,
                 debug_line_strings,
                 debug_addr,
+                debug_rnglists,
             )
         ))
 
@@ -838,6 +845,7 @@ def _format_die_attribute_value(
         dwarf.FormEncoding.DW_FORM_ref1: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_ref2: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_ref4: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_rnglistx: rnglistx_formatting,
         # For some reason binutils/dwarf.c:read_and_display_attr_value treats ref8 as data, rather than a reference.
         dwarf.FormEncoding.DW_FORM_ref8: lambda a: f'{a + cu.offset:#x}',
         dwarf.FormEncoding.DW_FORM_ref_udata: lambda a: f'<{a + cu.offset:#x}>',
@@ -878,6 +886,7 @@ def _print_die_attribute(
     debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
     debug_addr: dwarf.AddressEntrySet,
+    debug_rnglists: dwarf.RangelListEntrySet,
 ) -> None:
     print(
         f'    <{attr.offset:x}>  ',
@@ -891,6 +900,7 @@ def _print_die_attribute(
             debug_str_offsets,
             debug_line_strings,
             debug_addr,
+            debug_rnglists,
         ),
     )
 
@@ -936,6 +946,17 @@ def print_dwarf_info(
     else:
         debug_addr_table = {}
 
+    # Debug rangles
+    debug_rnglists_section = elf_obj.find_section('.debug_rnglists')
+    if debug_rnglists_section is not None:
+        debug_rnglists_stream = BytesIO(elf_obj.section_content(debug_rnglists_section.number))
+        debug_rnglists_sr = dwarf.StreamReader(elf_obj.data_format, debug_rnglists_stream)
+        debug_rnglists_table = {
+            t.base_offset: t for t in dwarf.RangelListEntrySet.read(debug_rnglists_sr)
+        }
+    else:
+        debug_rnglists_table = {}
+
     # Read abbreviation data.
     debug_abbrev = elf_obj.find_section('.debug_abbrev')
     assert debug_abbrev is not None
@@ -962,11 +983,23 @@ def print_dwarf_info(
             cu.addr_base_value(),
             dwarf.AddressEntrySet.empty(),
         )
+        debug_rnglists = debug_rnglists_table.get(
+            cu.range_lists_base_value(),
+            dwarf.RangelListEntrySet.empty(),
+        )
         for die in cu.die_entries:
             abbrev_name = f' ({die.tag.name})' if not die.is_null_entry else ''
             print(f' <{die.level}><{die.offset:x}>: Abbrev Number: {die.abbreviation_number}{abbrev_name}')
             for attr in die.attributes:
-                _print_die_attribute(elf_obj, attr, cu, debug_str_offsets, debug_line_strings, debug_addr)
+                _print_die_attribute(
+                    elf_obj,
+                    attr,
+                    cu,
+                    debug_str_offsets,
+                    debug_line_strings,
+                    debug_addr,
+                    debug_rnglists,
+                )
     print()
 
 
@@ -1224,6 +1257,118 @@ def print_dwarf_frames_interp(
     print_records(entries)
 
 
+def print_dwarf_ranges(
+    elf_obj: elf.Elf,
+    debug_rnglists: elf.Section,
+) -> None:
+    print(f'Contents of the {debug_rnglists.name} section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_rnglists.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+
+    # Get compilation units.
+    debug_abbrev = elf_obj.find_section('.debug_abbrev')
+    assert debug_abbrev is not None
+    debug_abbrev_stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
+    debug_abbrev_sr = dwarf.StreamReader(elf_obj.data_format, debug_abbrev_stream)
+    debug_info = elf_obj.find_section('.debug_info')
+    assert debug_info is not None
+    debug_info_stream = BytesIO(elf_obj.section_content(debug_info.number))
+    debug_info_sr = dwarf.StreamReader(elf_obj.data_format, debug_info_stream)
+    compile_units = {
+        cu.range_lists_base_value(): cu for cu in dwarf.CompilationUnit.read(debug_info_sr, debug_abbrev_sr)
+    }
+
+    # Get debug_addr
+    debug_addr_section = elf_obj.find_section('.debug_addr')
+    assert debug_addr_section is not None
+    debug_addr_stream = BytesIO(elf_obj.section_content(debug_addr_section.number))
+    debug_addr_sr = dwarf.StreamReader(elf_obj.data_format, debug_addr_stream)
+    debug_addr = {da_set.base_offset: da_set for da_set in dwarf.AddressEntrySet.read(debug_addr_sr)}
+
+    for entry_set in dwarf.RangelListEntrySet.read(sr):
+        debug_addr_entry_set: dwarf.AddressEntrySet | None = None
+
+        def get_debug_addr() -> dwarf.AddressEntrySet | None:
+            # global debug_addr_entry_set
+            if debug_addr_entry_set is not None:
+                return debug_addr_entry_set
+
+            cu = compile_units.get(entry_set.base_offset, None)
+            if cu is None:
+                print(f"Can't find a CU for range lists with base offset {entry_set.base_offset:#x}")
+                return None
+
+            # Get a linked addresses.
+            result = debug_addr.get(cu.addr_base_value(), None)
+            if result is None:
+                print(
+                    f"Can't find a .debug_addr entry for a CU@{cu.offset}, "
+                    f"debug addresses offset {cu.addr_base_value()}"
+                )
+            return result
+
+        print(f' Table at Offset: {entry_set.offset:#x}:')
+        print(f'  Length:          {entry_set.length:#x}')
+        print(f'  DWARF version:   {entry_set.version}')
+        print(f'  Address size:    {entry_set.address_size}')
+        print(f'  Segment size:    {entry_set.segment_selector_size}')
+        print(f'  Offset entries:  {len(entry_set.offsets)}')
+        print()
+        print(f'   Offsets starting at {entry_set.base_offset:#x}:')
+        for index, offset in enumerate(entry_set.offsets):
+            print(f'    [{index:6}] {offset:#x}')
+        print()
+        for offset, entry_list in zip(entry_set.offsets, entry_set.entries):
+            print(f'  Offset: {offset:x}, Index: {offset - entry_set.base_offset:#x}')
+            print('    Offset   Begin    End')
+            start, end, base = 0, 0, 0
+            for entry in entry_list:
+                match entry.kind:
+                    case dwarf.RangeListEntryKind.DW_RLE_base_addressx:
+                        debug_addr_entry_set = get_debug_addr()
+                        assert debug_addr_entry_set
+                        base_index = entry.operands[0]
+                        base = debug_addr_entry_set.entries[base_index]
+                    case dwarf.RangeListEntryKind.DW_RLE_startx_endx:
+                        debug_addr_entry_set = get_debug_addr()
+                        assert debug_addr_entry_set
+                        start = debug_addr_entry_set.entries[entry.operands[0]]
+                        end = debug_addr_entry_set.entries[entry.operands[1]]
+                    case dwarf.RangeListEntryKind.DW_RLE_startx_length:
+                        debug_addr_entry_set = get_debug_addr()
+                        assert debug_addr_entry_set
+                        start = debug_addr_entry_set.entries[entry.operands[0]]
+                        end = start + entry.operands[1]
+                    case dwarf.RangeListEntryKind.DW_RLE_offset_pair:
+                        start = base + entry.operands[0]
+                        end = base + entry.operands[1]
+                    case dwarf.RangeListEntryKind.DW_RLE_base_address:
+                        base = entry.operands[0]
+                    case dwarf.RangeListEntryKind.DW_RLE_start_end:
+                        start = entry.operands[0]
+                        end = entry.operands[1]
+                    case dwarf.RangeListEntryKind.DW_RLE_start_length:
+                        start = entry.operands[0]
+                        end = start + entry.operands[1]
+                match entry.kind:
+                    case dwarf.RangeListEntryKind.DW_RLE_end_of_list:
+                        print(f'    {entry.section_offset:08x} <End of list>')
+                    case dwarf.RangeListEntryKind.DW_RLE_base_addressx:
+                        print(
+                            f'    {entry.section_offset:08x} {entry.operands[0]:016x}'
+                            f' (base address index) {base:016x} (base address)'
+                        )
+                    case dwarf.RangeListEntryKind.DW_RLE_base_address:
+                        print(f'    {entry.section_offset:08x} {base:016x} (base address)')
+                    case (dwarf.RangeListEntryKind.DW_RLE_startx_endx |
+                          dwarf.RangeListEntryKind.DW_RLE_startx_length |
+                          dwarf.RangeListEntryKind.DW_RLE_offset_pair |
+                          dwarf.RangeListEntryKind.DW_RLE_start_end |
+                          dwarf.RangeListEntryKind.DW_RLE_start_length):
+                        print(f'    {entry.section_offset:08x} {start:016x} {end:016x} ')
+            print()
+
+
 def print_dwarf_str(
     elf_obj: elf.Elf,
     debug_str: elf.Section,
@@ -1323,6 +1468,9 @@ if __name__ == "__main__":
             case '.debug_addr':
                 if 'addr' in args.dwarf:
                     print_dwarf_addr(elf_obj, debug_section)
+            case '.debug_rnglists':
+                if 'ranges' in args.dwarf:
+                    print_dwarf_ranges(elf_obj, debug_section)
             case '.debug_line':
                 if 'rawline' in args.dwarf:
                     print_dwarf_rawline(elf_obj, debug_section)
