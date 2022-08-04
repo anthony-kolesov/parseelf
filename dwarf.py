@@ -2834,3 +2834,125 @@ class RangeListEntrySet:
     @staticmethod
     def empty() -> 'RangeListEntrySet':
         return RangeListEntrySet(0, 0, 8, 8, 0, tuple(), tuple(), 0, 0)
+
+
+#
+# .debug_loclists
+#
+class LocationListEntryKind(Enum):
+    DW_LLE_end_of_list = 0x00
+    DW_LLE_base_addressx = 0x01
+    DW_LLE_startx_endx = 0x02
+    DW_LLE_startx_length = 0x03
+    DW_LLE_offset_pair = 0x04
+    DW_LLE_default_location = 0x05
+    DW_LLE_base_address = 0x06
+    DW_LLE_start_end = 0x07
+    DW_LLE_start_length = 0x08
+
+
+@dataclasses.dataclass(frozen=True)
+class LocationListEntry:
+    kind: LocationListEntryKind
+    operands: tuple
+    expr: Sequence[ExpressionOperation]
+    section_offset: int
+
+    @staticmethod
+    def read1(sr: StreamReader, address_size: int) -> 'LocationListEntry':
+        section_offset = sr.current_position
+        kind = LocationListEntryKind(sr.uint1())
+        match kind:
+            case (LocationListEntryKind.DW_LLE_end_of_list |
+                  LocationListEntryKind.DW_LLE_default_location):
+                operands: tuple = tuple()  # No operands.
+            case LocationListEntryKind.DW_LLE_base_addressx:
+                operands = (sr.uleb128(), )
+            case LocationListEntryKind.DW_LLE_startx_endx:
+                operands = (sr.uleb128(), sr.uleb128())
+            case LocationListEntryKind.DW_LLE_startx_length:
+                operands = (sr.uleb128(), sr.uleb128())
+            case LocationListEntryKind.DW_LLE_offset_pair:
+                operands = (sr.uleb128(), sr.uleb128())
+            case LocationListEntryKind.DW_LLE_base_address:
+                operands = (sr.uint(address_size), )
+            case LocationListEntryKind.DW_LLE_start_end:
+                operands = (sr.uint(address_size), sr.uint(address_size))
+            case LocationListEntryKind.DW_LLE_start_length:
+                operands = (sr.uint(address_size), sr.uleb128())
+
+        # Every kind except end_of_list has an expression attached.
+        if kind in (
+            LocationListEntryKind.DW_LLE_end_of_list,
+            LocationListEntryKind.DW_LLE_base_address,
+            LocationListEntryKind.DW_LLE_base_addressx,
+           ):
+            expr: Sequence[ExpressionOperation] = tuple()
+        else:
+            buffer = BytesIO(sr.block())
+            expression_reader = StreamReader(sr.data_format, buffer)
+            expr = tuple(ExpressionOperation.read(expression_reader))
+
+        return LocationListEntry(kind, operands, expr, section_offset)
+
+    @staticmethod
+    def read(sr: StreamReader, address_size: int) -> Iterable['LocationListEntry']:
+        # Same as for range list entries.
+        while not sr.at_eof:
+            entry = LocationListEntry.read1(sr, address_size)
+            yield entry
+            if entry.kind == LocationListEntryKind.DW_LLE_end_of_list:
+                break
+
+
+@dataclasses.dataclass(frozen=True)
+class LocationListEntrySet:
+    offset: int
+    """Offset of the header in the .debug_loclists section."""
+    length: int
+    version: int
+    address_size: int
+    segment_selector_size: int
+    offsets: Sequence[int]
+    entries: Sequence[Sequence[LocationListEntry]]
+    base_offset: int
+    "Base offset, specified in DW_AT_loclists_base."
+    entries_base_offset: int
+
+    @staticmethod
+    def read(sr: StreamReader) -> Iterable['LocationListEntrySet']:
+        while not sr.at_eof:
+            offset = sr.current_position
+            length = sr.length()
+            end_position = sr.current_position + length
+            version = sr.uint2()
+            if version != 5:
+                logging.error('.debug_loclists contains entry of unsupported version %s', version)
+            assert version == 5
+            address_size = sr.uint1()
+            segment_selector_size = sr.uint1()
+            assert segment_selector_size == 0, "Non-zero segment selector size is not supported by this tool."
+            offset_entry_count = sr.uint4()
+            base_offset = sr.current_position
+            offsets = tuple(sr.offset() for _ in range(offset_entry_count))
+            entries: list[Sequence[LocationListEntry]] = []
+            entries_base_offset = sr.current_position
+            for entry_offset in offsets:
+                sr.set_abs_position(entry_offset)
+                entries.append(list(LocationListEntry.read(sr, address_size)))
+            yield LocationListEntrySet(
+                offset,
+                length,
+                version,
+                address_size,
+                segment_selector_size,
+                offsets,
+                entries,
+                base_offset,
+                entries_base_offset,
+            )
+            sr.set_abs_position(end_position)
+
+    @staticmethod
+    def empty() -> 'LocationListEntrySet':
+        return LocationListEntrySet(0, 0, 8, 8, 0, tuple(), tuple(), 0, 0)

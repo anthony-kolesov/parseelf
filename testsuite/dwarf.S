@@ -491,3 +491,15 @@
 #define DW_RLE_base_address (0x05)
 #define DW_RLE_start_end (0x06)
 #define DW_RLE_start_length (0x07)
+
+
+# Location list entries
+#define DW_LLE_end_of_list (0x00)
+#define DW_LLE_base_addressx (0x01)
+#define DW_LLE_startx_endx (0x02)
+#define DW_LLE_startx_length (0x03)
+#define DW_LLE_offset_pair (0x04)
+#define DW_LLE_default_location (0x05)
+#define DW_LLE_base_address (0x06)
+#define DW_LLE_start_end (0x07)
+#define DW_LLE_start_length (0x08)

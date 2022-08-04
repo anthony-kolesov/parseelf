@@ -84,6 +84,8 @@ _start:
     .uleb128 DW_AT_sibling
     .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_location
+    .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_location
     .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_name
     .uleb128 DW_FORM_strp
@@ -112,6 +114,8 @@ _start:
         # would do something else for now.
     # .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_string_length
+    .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_string_length
     .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_common_reference
     .uleb128 DW_FORM_ref4
@@ -133,6 +137,8 @@ _start:
     .uleb128 DW_FORM_strp
     .uleb128 DW_AT_prototyped
     .uleb128 DW_FORM_flag
+    .uleb128 DW_AT_return_addr
+    .uleb128 DW_FORM_loclistx
     .uleb128 DW_AT_return_addr
     .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_start_scope
@@ -182,19 +188,27 @@ _start:
     .uleb128 DW_AT_priority
     .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_segment
+    .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_segment
     .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_specification
     .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_static_link
+    .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_static_link
     .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_type
     .uleb128 DW_FORM_ref4
+    .uleb128 DW_AT_use_location
+    .uleb128 DW_FORM_loclistx
     .uleb128 DW_AT_use_location
     .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_variable_parameter
     .uleb128 DW_FORM_flag
     .uleb128 DW_AT_virtuality
     .uleb128 DW_FORM_data1
+    .uleb128 DW_AT_vtable_elem_location
+    .uleb128 DW_FORM_loclistx
     .uleb128 DW_AT_vtable_elem_location
     .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_allocated
@@ -317,8 +331,7 @@ _start:
     .uleb128 DW_FORM_flag
     .uleb128 DW_AT_defaulted
     .uleb128 DW_FORM_data1
-    # .uleb128 DW_AT_loclists_base  # Offset into .debug_loclists
-    # .uleb128 DW_FORM_sec_offset
+    # .uleb128 DW_AT_loclists_base - duplicates CU attribute
     .uleb128 0  # End of abbreviation.
     .uleb128 0
 
@@ -393,10 +406,10 @@ _start:
     .uleb128 DW_AT_default_value
     .uleb128 DW_FORM_implicit_const
     .uleb128 0x5a  # implicit constant value.
-    # .uleb128 DW_AT_default_value  # debug_loclists
-    # .uleb128 DW_FORM_loclistx     # debug_loclists
-    .uleb128 DW_AT_default_value  # debug_rnglists
-    .uleb128 DW_FORM_rnglistx     # debug_rnglists
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_default_value
+    .uleb128 DW_FORM_rnglistx
     # .uleb128 DW_FORM_ref_sup8  # Can't test - needs a supplementary file.
     .uleb128 DW_AT_default_value
     .uleb128 DW_FORM_strx1
@@ -464,7 +477,7 @@ _start:
     .4byte 8  # DW_AT_str_offsets_base
     .4byte .Ldebug_addr1_base  # DW_AT_addr_base
     .4byte .LRL1_base  # DW_AT_rnglists_base
-    .4byte 0 # DW_AT_loclists_base, TODO: put meaningful value here.
+    .4byte .LCU1_LL_base  # DW_AT_loclists_base
 
 .LDW5_base_type_DIE:
     .uleb128 2  # abbreviation number
@@ -480,6 +493,7 @@ _start:
         # An offset from the CU header to the referenced DIE. Semantically it
         # should be a forward reference and point to an DIE with higher offset
         # in the file (though this is not technically required).
+    .uleb128 1  # DW_AT_location (.LCU1_LL_entry1)
     .uleb128 1  # DW_AT_location as exprloc
         .byte DW_OP_lit(6)
     .4byte .Lstr_all_attributes_name  # DW_AT_name
@@ -494,6 +508,7 @@ _start:
     .4byte 0x5aa5f00f  # DW_AT_discr_value
     .byte DW_VIS_exported  # DW_AT_visibility
     # .4byte .LDW5_base_type_DIE  # DW_AT_import
+    .uleb128 2  # DW_AT_string_length (.LCU1_LL_entry2)
     .uleb128 1  # DW_AT_string_length as exprloc
         .byte DW_OP_lit(5)
     .4byte .LDW5_base_type_DIE  # DW_AT_common_reference
@@ -506,6 +521,7 @@ _start:
     .byte 5  # DW_AT_lower_bound
     .4byte .Lstr_producer  # DW_AT_producer
     .byte 1  # DW_AT_prototyped
+    .uleb128 2  # DW_AT_return_addr (.LCU1_LL_entry1)
     .uleb128 1  # DW_AT_return_addr as exprloc
         .byte DW_OP_lit(4)
     .byte 12  # DW_AT_start_scope
@@ -544,16 +560,20 @@ _start:
     .byte DW_ID_case_sensitive # DW_AT_identifier_case
     .4byte .LDW5_base_type_DIE  # DW_AT_namelist_item
     .4byte .LDW5_base_type_DIE  # DW_AT_priority
+    .uleb128 1  # DW_AT_segment (.LCU1_LL_entry1)
     .uleb128 1  # DW_AT_segment as exprloc
         .byte DW_OP_lit(3)
     .4byte .LDW5_base_type_DIE  # DW_AT_specification
+    .uleb128 1  # DW_AT_static_link (.LCU1_LL_entry1)
     .uleb128 1  # DW_AT_static_link as exprloc
         .byte DW_OP_lit(2)
     .4byte .LDW5_base_type_DIE  # DW_AT_type
+    .uleb128 1  # DW_AT_use_location (.LCU1_LL_entry1)
     .uleb128 1  # DW_AT_use_location as exprloc
         .byte DW_OP_lit(1)
     .byte 0  # DW_AT_variable_parameter
     .byte DW_VIRTUALITY_pure_virtual  # DW_AT_virtuality
+    .uleb128 1  # DW_AT_vtable_elem_location (.LCU1_LL_entry1)
     .uleb128 1  # DW_AT_vtable_elem_location as exprloc
         .byte DW_OP_lit(0)
     .byte 1  # DW_AT_allocated
@@ -625,7 +645,6 @@ _start:
     .byte 1  # DW_AT_export_symbols
     .byte 1  # DW_AT_deleted
     .byte DW_DEFAULTED_out_of_class  # DW_AT_defaulted
-    # .4byte 0 # DW_AT_loclists_base, TODO: put meaningful value here.
 
 .Lall_forms_DIE:
     .uleb128 0xff1  # Abbreviation number.
@@ -664,6 +683,7 @@ _start:
     .uleb128 1  # DW_FORM_addrx
     .4byte .Lline_str1 + 2  #  DW_FORM_line_strp (offset in the middle of the string)
     # DW_FORM_implicit_const - implicit value.
+    .uleb128 1  # DW_FORM_loclistx (.LCU1_LL_entry1)
     .uleb128 2  # DW_FORM_rnglistx (.LRL1_entry2)
     .byte 1  # DW_FORM_strx1
     .2byte 1  # DW_FORM_strx2
@@ -879,3 +899,81 @@ _start:
     .uleb128 0x10
     .byte DW_RLE_end_of_list
 .LRL2_end:
+
+.section .debug_loclists, "", @progbits
+.LCU1_LL:
+    .4byte .LCU1_LL_end - .LCU1_LL_start  # length (DWARF32)
+.LCU1_LL_start:
+    .2byte 5  # version
+    .byte 8  # address_size
+    .byte 0  # segment selector size
+    .4byte 3  # offset_entry_count
+.LCU1_LL_base:
+    .4byte .LCU1_LL_entry0
+    .4byte .LCU1_LL_entry1
+    .4byte .LCU1_LL_entry2
+.LCU1_LL_entries:
+.LCU1_LL_entry0:
+    .byte DW_LLE_end_of_list
+.LCU1_LL_entry1:
+    .byte DW_LLE_start_end
+    .8byte 0x2000
+    .8byte 0x2010
+    .uleb128 1
+        .byte DW_OP_reg(1)
+    .byte DW_LLE_start_length
+    .8byte 0x2020
+    .uleb128 0x10
+    .uleb128 1
+        .byte DW_OP_reg(2)
+    .byte DW_LLE_offset_pair
+    .uleb128 0x2040
+    .uleb128 0x2050
+    .uleb128 1
+        .byte DW_OP_reg(3)
+    .byte DW_LLE_startx_length
+    .uleb128 2
+    .uleb128 0x10
+    .uleb128 1
+        .byte DW_OP_reg(4)
+    .byte DW_LLE_startx_endx
+    .uleb128 0
+    .uleb128 1
+    .uleb128 1
+        .byte DW_OP_reg(5)
+    .byte DW_LLE_base_address
+    .8byte 0x00100000
+    .byte DW_LLE_start_end
+    .8byte 0x2100
+    .8byte 0x2110
+    .uleb128 2
+        .byte DW_OP_lit(9)
+        .byte DW_OP_reg(6)
+    .byte DW_LLE_start_length
+    .8byte 0x2120
+    .uleb128 0x10
+    .uleb128 1
+        .byte DW_OP_reg(7)
+    .byte DW_LLE_offset_pair
+    .uleb128 0x2040
+    .uleb128 0x2050
+    .uleb128 1
+        .byte DW_OP_reg(8)
+    .byte DW_LLE_base_addressx
+    .uleb128 3
+    .byte DW_LLE_offset_pair
+    .uleb128 0x2060
+    .uleb128 0x2070
+    .uleb128 1
+        .byte DW_OP_reg(9)
+    .byte DW_LLE_default_location
+    .uleb128 2
+        .byte DW_OP_breg(14)
+        .sleb128 -16
+    .byte DW_LLE_end_of_list
+.LCU1_LL_entry2:
+    .byte DW_LLE_default_location
+    .uleb128 1
+        .byte DW_OP_reg(13)
+    .byte DW_LLE_end_of_list
+.LCU1_LL_end:

@@ -93,6 +93,7 @@ def create_parser() -> ArgumentParser:
             'rawline',
             'decodedline',
             'info',
+            'loc',
             'abbrev',
             'addr',
             'aranges',
@@ -753,6 +754,13 @@ def _format_die_attribute_value(
         s = dwarf.ExpressionOperation.objdump_format_seq(fmt, dwarf.ExpressionOperation.read(init_instr_sr))
         return f'{block_formatting(b)}\t({s})'
 
+    def loclistx_attr(value: int) -> str:
+        # I'm not sure what this 0 means here. I have a suspicion (unconfirmed)
+        # that it is an issue in binutils, since I've observed problems with
+        # reading of .debug_loclists in objdump.
+        # Format for attributes and forms is different.
+        return f'(index: {value:#x}): 0 (location list)'
+
     def discr_list(b: bytes) -> str:
         sr = dwarf.StreamReader(elf_obj.data_format, BytesIO(b))
         result = []
@@ -792,6 +800,7 @@ def _format_die_attribute_value(
     }
 
     attr_formatting: dict[dwarf.AttributeEncoding, Callable[[int], str]] = {
+        dwarf.AttributeEncoding.DW_AT_location: loclistx_attr,
         dwarf.AttributeEncoding.DW_AT_high_pc: lambda a: format(a, '#x'),
         dwarf.AttributeEncoding.DW_AT_language: partial(human_name, dwarf.LanguageEncoding),
         dwarf.AttributeEncoding.DW_AT_encoding: partial(human_name, dwarf.AttributeTypeEncoding),
@@ -799,10 +808,16 @@ def _format_die_attribute_value(
         dwarf.AttributeEncoding.DW_AT_endianity: partial(human_name, dwarf.EndianityEncoding),
         dwarf.AttributeEncoding.DW_AT_ordering: partial(human_name, dwarf.ArrayOrderingEncoding),
         dwarf.AttributeEncoding.DW_AT_visibility: partial(human_name, dwarf.VisibilityEncoding),
+        dwarf.AttributeEncoding.DW_AT_string_length: loclistx_attr,
         dwarf.AttributeEncoding.DW_AT_inline: partial(human_name, dwarf.InlineEncoding),
+        dwarf.AttributeEncoding.DW_AT_return_addr: loclistx_attr,
         dwarf.AttributeEncoding.DW_AT_accessibility: partial(human_name, dwarf.AccessibilityEncoding),
         dwarf.AttributeEncoding.DW_AT_calling_convention: partial(human_name, dwarf.CallingConventionEncoding),
+        dwarf.AttributeEncoding.DW_AT_segment: loclistx_attr,
+        dwarf.AttributeEncoding.DW_AT_static_link: loclistx_attr,
+        dwarf.AttributeEncoding.DW_AT_use_location: loclistx_attr,
         dwarf.AttributeEncoding.DW_AT_virtuality: partial(human_name, dwarf.VirtualityEncoding),
+        dwarf.AttributeEncoding.DW_AT_vtable_elem_location: loclistx_attr,
         dwarf.AttributeEncoding.DW_AT_decimal_sign: partial(human_name, dwarf.DecimalSignEncoding),
         dwarf.AttributeEncoding.DW_AT_defaulted: partial(human_name, dwarf.DefaultedEncoding),
         dwarf.AttributeEncoding.DW_AT_loclists_base: lambda a: f'{a:#x} (location list)',
@@ -819,6 +834,10 @@ def _format_die_attribute_value(
 
     def addrx_formatting(value: int) -> str:
         return f'(index: {value:#x}): {debug_addr.entries[value]:x}'
+
+    def loclistx_form(value: int) -> str:
+        # Format for attributes and forms is different.
+        return f'(index: {value:#x}): 0'
 
     def rnglistx_formatting(value: int) -> str:
         offset = debug_rnglists.offsets[value]
@@ -861,6 +880,7 @@ def _format_die_attribute_value(
         dwarf.FormEncoding.DW_FORM_ref1: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_ref2: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_ref4: lambda a: f'<{a + cu.offset:#x}>',
+        dwarf.FormEncoding.DW_FORM_loclistx: loclistx_form,
         dwarf.FormEncoding.DW_FORM_rnglistx: rnglistx_formatting,
         # For some reason binutils/dwarf.c:read_and_display_attr_value treats ref8 as data, rather than a reference.
         dwarf.FormEncoding.DW_FORM_ref8: lambda a: f'{a + cu.offset:#x}',
@@ -1019,6 +1039,124 @@ def print_dwarf_info(
                     debug_addr,
                     debug_rnglists,
                 )
+    print()
+
+
+def print_dwarf_loclists(
+    elf_obj: elf.Elf,
+    debug_loclists: elf.Section,
+) -> None:
+    print(f'Contents of the {debug_loclists.name} section:\n')
+    stream = BytesIO(elf_obj.section_content(debug_loclists.number))
+    sr = dwarf.StreamReader(elf_obj.data_format, stream)
+
+    # Get compilation units.
+    debug_abbrev = elf_obj.find_section('.debug_abbrev')
+    assert debug_abbrev is not None
+    debug_abbrev_stream = BytesIO(elf_obj.section_content(debug_abbrev.number))
+    debug_abbrev_sr = dwarf.StreamReader(elf_obj.data_format, debug_abbrev_stream)
+    debug_info = elf_obj.find_section('.debug_info')
+    assert debug_info is not None
+    debug_info_stream = BytesIO(elf_obj.section_content(debug_info.number))
+    debug_info_sr = dwarf.StreamReader(elf_obj.data_format, debug_info_stream)
+    compile_units = {
+        cu.range_lists_base_value(): cu for cu in dwarf.CompilationUnit.read(debug_info_sr, debug_abbrev_sr)
+    }
+
+    # Get debug_addr
+    debug_addr_section = elf_obj.find_section('.debug_addr')
+    assert debug_addr_section is not None
+    debug_addr_stream = BytesIO(elf_obj.section_content(debug_addr_section.number))
+    debug_addr_sr = dwarf.StreamReader(elf_obj.data_format, debug_addr_stream)
+    debug_addr = {da_set.base_offset: da_set for da_set in dwarf.AddressEntrySet.read(debug_addr_sr)}
+
+    for entry_set in dwarf.LocationListEntrySet.read(sr):
+        debug_addr_entry_set: dwarf.AddressEntrySet | None = None
+
+        def get_debug_addr() -> dwarf.AddressEntrySet | None:
+            if debug_addr_entry_set is not None:
+                return debug_addr_entry_set
+
+            cu = compile_units.get(entry_set.base_offset, None)
+            if cu is None:
+                print(f"Can't find a CU for range lists with base offset {entry_set.base_offset:#x}")
+                return None
+
+            # Get a linked addresses.
+            result = debug_addr.get(cu.addr_base_value(), None)
+            if result is None:
+                print(
+                    f"Can't find a .debug_addr entry for a CU@{cu.offset}, "
+                    f"debug addresses offset {cu.addr_base_value()}"
+                )
+            return result
+
+        print(f'Table at Offset {entry_set.offset:#x}')
+        print(f'  Length:          {entry_set.length:#x}')
+        print(f'  DWARF version:   {entry_set.version}')
+        print(f'  Address size:    {entry_set.address_size}')
+        print(f'  Segment size:    {entry_set.segment_selector_size}')
+        print(f'  Offset entries:  {len(entry_set.offsets)}')
+        print()
+        print(f'   Offset Entries starting at {entry_set.base_offset:#x}:')
+        for index, offset in enumerate(entry_set.offsets):
+            print(f'    [{index:6}] {offset:#x}')
+        print()
+        # for offset, entry_list in zip(entry_set.offsets, entry_set.entries):
+        for index, entry_list in enumerate(entry_set.entries):
+            print(f'   Offset Entry {index}')
+            start, end, base = 0, 0, 0
+            for entry in entry_list:
+                match entry.kind:
+                    case dwarf.LocationListEntryKind.DW_LLE_base_addressx:
+                        debug_addr_entry_set = get_debug_addr()
+                        assert debug_addr_entry_set
+                        base_index = entry.operands[0]
+                        base = debug_addr_entry_set.entries[base_index]
+                    case dwarf.LocationListEntryKind.DW_LLE_startx_endx:
+                        debug_addr_entry_set = get_debug_addr()
+                        assert debug_addr_entry_set
+                        start = debug_addr_entry_set.entries[entry.operands[0]]
+                        end = debug_addr_entry_set.entries[entry.operands[1]]
+                    case dwarf.LocationListEntryKind.DW_LLE_startx_length:
+                        debug_addr_entry_set = get_debug_addr()
+                        assert debug_addr_entry_set
+                        start = debug_addr_entry_set.entries[entry.operands[0]]
+                        end = start + entry.operands[1]
+                    case dwarf.LocationListEntryKind.DW_LLE_offset_pair:
+                        start = base + entry.operands[0]
+                        end = base + entry.operands[1]
+                    case dwarf.LocationListEntryKind.DW_LLE_default_location:
+                        start, end = 0, 0
+                    case dwarf.LocationListEntryKind.DW_LLE_base_address:
+                        base = entry.operands[0]
+                    case dwarf.LocationListEntryKind.DW_LLE_start_end:
+                        start = entry.operands[0]
+                        end = entry.operands[1]
+                    case dwarf.LocationListEntryKind.DW_LLE_start_length:
+                        start = entry.operands[0]
+                        end = start + entry.operands[1]
+                match entry.kind:
+                    case dwarf.LocationListEntryKind.DW_LLE_end_of_list:
+                        print(f'    {entry.section_offset:08x} <End of list>')
+                    case dwarf.LocationListEntryKind.DW_LLE_base_addressx:
+                        print(
+                            f'    {entry.section_offset:08x} {entry.operands[0]:016x}'
+                            f' (index into .debug_addr) {base:016x} (base address)'
+                        )
+                    case dwarf.LocationListEntryKind.DW_LLE_base_address:
+                        print(f'    {entry.section_offset:08x} {base:016x} (base address)')
+                    case (dwarf.LocationListEntryKind.DW_LLE_startx_endx |
+                          dwarf.LocationListEntryKind.DW_LLE_startx_length |
+                          dwarf.LocationListEntryKind.DW_LLE_offset_pair |
+                          dwarf.LocationListEntryKind.DW_LLE_start_end |
+                          dwarf.LocationListEntryKind.DW_LLE_start_length |
+                          dwarf.LocationListEntryKind.DW_LLE_default_location):
+                        se = '(start == end) ' if start == end else ''
+                        fmt = dwarf.TargetFormatter(elf_obj.file_header.machine, elf_obj.data_format.bits.address_size)
+                        expr_string = dwarf.ExpressionOperation.objdump_format_seq(fmt, entry.expr)
+                        print(f'    {entry.section_offset:08x} {start:016x} {end:016x}  {se}{expr_string}')
+            print()
     print()
 
 
@@ -1480,6 +1618,9 @@ if __name__ == "__main__":
             case '.debug_info':
                 if 'info' in args.dwarf:
                     print_dwarf_info(elf_obj, debug_section)
+            case '.debug_loclists':
+                if 'loc' in args.dwarf:
+                    print_dwarf_loclists(elf_obj, debug_section)
             case '.debug_abbrev':
                 if 'abbrev' in args.dwarf:
                     print_dwarf_abbrev(elf_obj, debug_section)
