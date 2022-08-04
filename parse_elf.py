@@ -769,10 +769,26 @@ def _format_die_attribute_value(
         # signed or not, so just assume that it is always unsigned for now.
         return f'{block_formatting(b)}\t({", ".join(result)})(unsigned)'
 
+    # Some attributes, like DW_AT_location may have either bytes
+    # (DW_FORM_exprloc) or int (DW_FORM_loclist) presentation, so they are
+    # mentioned in both mappings. Which mapping to use depends on the type of
+    # the value, and that one depends on the form used to read the data from
+    # the stream.
     bytes_attr_formatting: dict[dwarf.AttributeEncoding, Callable[[bytes], str]] = {
+        dwarf.AttributeEncoding.DW_AT_location: exprloc,
+        dwarf.AttributeEncoding.DW_AT_string_length: exprloc,
+        dwarf.AttributeEncoding.DW_AT_return_addr: exprloc,
         dwarf.AttributeEncoding.DW_AT_discr_list: discr_list,
         dwarf.AttributeEncoding.DW_AT_frame_base: exprloc,
+        dwarf.AttributeEncoding.DW_AT_segment: exprloc,
+        dwarf.AttributeEncoding.DW_AT_static_link: exprloc,
+        dwarf.AttributeEncoding.DW_AT_use_location: exprloc,
+        dwarf.AttributeEncoding.DW_AT_vtable_elem_location: exprloc,
         dwarf.AttributeEncoding.DW_AT_data_location: exprloc,
+        dwarf.AttributeEncoding.DW_AT_call_value: exprloc,
+        dwarf.AttributeEncoding.DW_AT_call_target: exprloc,
+        dwarf.AttributeEncoding.DW_AT_call_target_clobbered: exprloc,
+        dwarf.AttributeEncoding.DW_AT_call_data_value: exprloc,
     }
 
     attr_formatting: dict[dwarf.AttributeEncoding, Callable[[int], str]] = {
@@ -850,6 +866,10 @@ def _format_die_attribute_value(
         dwarf.FormEncoding.DW_FORM_ref8: lambda a: f'{a + cu.offset:#x}',
         dwarf.FormEncoding.DW_FORM_ref_udata: lambda a: f'<{a + cu.offset:#x}>',
         dwarf.FormEncoding.DW_FORM_sec_offset: lambda a: format(a, '#x'),
+        # Binutils prints only select attributes as exprlocs, not just any
+        # DW_FORM_exprloc, e.g. DW_AT_call_value is printed as exprloc, but
+        # DW_AT_call_origin as a simple block. I tend to think that this is an
+        # oversight on the binutils side, rather than some intentional behavior.
         dwarf.FormEncoding.DW_FORM_exprloc: block_formatting,
         dwarf.FormEncoding.DW_FORM_flag_present: str,
         dwarf.FormEncoding.DW_FORM_ref_sig8: lambda a: f'signature: {a + cu.offset:#x}',

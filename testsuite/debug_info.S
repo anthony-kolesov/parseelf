@@ -83,8 +83,8 @@ _start:
     .byte DW_CHILDREN_yes
     .uleb128 DW_AT_sibling
     .uleb128 DW_FORM_ref4
-    # .uleb128 DW_AT_location
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_location
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_name
     .uleb128 DW_FORM_strp
     .uleb128 DW_AT_ordering
@@ -111,8 +111,8 @@ _start:
         # typical attribute, and while this is definitely doable, I probably
         # would do something else for now.
     # .uleb128 DW_FORM_ref4
-    # .uleb128 DW_AT_string_length
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_string_length
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_common_reference
     .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_comp_dir
@@ -133,8 +133,8 @@ _start:
     .uleb128 DW_FORM_strp
     .uleb128 DW_AT_prototyped
     .uleb128 DW_FORM_flag
-    # .uleb128 DW_AT_return_addr
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_return_addr
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_start_scope
     .uleb128 DW_FORM_data1
     .uleb128 DW_AT_bit_stride
@@ -181,22 +181,22 @@ _start:
     .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_priority
     .uleb128 DW_FORM_ref4
-    # .uleb128 DW_AT_segment
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_segment
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_specification
     .uleb128 DW_FORM_ref4
-    # .uleb128 DW_AT_static_link
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_static_link
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_type
     .uleb128 DW_FORM_ref4
-    # .uleb128 DW_AT_use_location
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_use_location
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_variable_parameter
     .uleb128 DW_FORM_flag
     .uleb128 DW_AT_virtuality
     .uleb128 DW_FORM_data1
-    # .uleb128 DW_AT_vtable_elem_location
-    # .uleb128 DW_FORM_loclistx
+    .uleb128 DW_AT_vtable_elem_location
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_allocated
     .uleb128 DW_FORM_data1
     .uleb128 DW_AT_associated
@@ -289,24 +289,24 @@ _start:
     .uleb128 DW_FORM_flag
     .uleb128 DW_AT_call_return_pc
     .uleb128 DW_FORM_addr
-    # .uleb128 DW_AT_call_value
-    # .uleb128 DW_FORM_exprloc
-    # .uleb128 DW_AT_call_origin
-    # .uleb128 DW_FORM_exprloc
+    .uleb128 DW_AT_call_value
+    .uleb128 DW_FORM_exprloc
+    .uleb128 DW_AT_call_origin
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_call_parameter
     .uleb128 DW_FORM_ref4
     .uleb128 DW_AT_call_pc
     .uleb128 DW_FORM_addr
     .uleb128 DW_AT_call_tail_call
     .uleb128 DW_FORM_flag
-    # .uleb128 DW_AT_call_target
-    # .uleb128 DW_FORM_exprloc
-    # .uleb128 DW_AT_call_target_clobbered
-    # .uleb128 DW_FORM_exprloc
-    # .uleb128 DW_AT_call_data_location
-    # .uleb128 DW_FORM_exprloc
-    # .uleb128 DW_AT_call_data_value
-    # .uleb128 DW_FORM_exprloc
+    .uleb128 DW_AT_call_target
+    .uleb128 DW_FORM_exprloc
+    .uleb128 DW_AT_call_target_clobbered
+    .uleb128 DW_FORM_exprloc
+    .uleb128 DW_AT_call_data_location
+    .uleb128 DW_FORM_exprloc
+    .uleb128 DW_AT_call_data_value
+    .uleb128 DW_FORM_exprloc
     .uleb128 DW_AT_noreturn
     .uleb128 DW_FORM_flag
     .uleb128 DW_AT_alignment
@@ -480,7 +480,8 @@ _start:
         # An offset from the CU header to the referenced DIE. Semantically it
         # should be a forward reference and point to an DIE with higher offset
         # in the file (though this is not technically required).
-    # DW_AT_location
+    .uleb128 1  # DW_AT_location as exprloc
+        .byte DW_OP_lit(6)
     .4byte .Lstr_all_attributes_name  # DW_AT_name
     .byte DW_ORD_row_major  # DW_AT_ordering
     .byte (0xc0 / 8)  # DW_AT_byte_size
@@ -493,7 +494,8 @@ _start:
     .4byte 0x5aa5f00f  # DW_AT_discr_value
     .byte DW_VIS_exported  # DW_AT_visibility
     # .4byte .LDW5_base_type_DIE  # DW_AT_import
-    # DW_AT_string_length
+    .uleb128 1  # DW_AT_string_length as exprloc
+        .byte DW_OP_lit(5)
     .4byte .LDW5_base_type_DIE  # DW_AT_common_reference
     .4byte .Lstr_compile_dir  # DW_AT_comp_dir
     .byte 0xc0  # DW_AT_const_value
@@ -504,6 +506,8 @@ _start:
     .byte 5  # DW_AT_lower_bound
     .4byte .Lstr_producer  # DW_AT_producer
     .byte 1  # DW_AT_prototyped
+    .uleb128 1  # DW_AT_return_addr as exprloc
+        .byte DW_OP_lit(4)
     .byte 12  # DW_AT_start_scope
     .byte 7  # DW_AT_bit_stride
     .byte 19  # DW_AT_upper_bound
@@ -540,10 +544,18 @@ _start:
     .byte DW_ID_case_sensitive # DW_AT_identifier_case
     .4byte .LDW5_base_type_DIE  # DW_AT_namelist_item
     .4byte .LDW5_base_type_DIE  # DW_AT_priority
+    .uleb128 1  # DW_AT_segment as exprloc
+        .byte DW_OP_lit(3)
     .4byte .LDW5_base_type_DIE  # DW_AT_specification
+    .uleb128 1  # DW_AT_static_link as exprloc
+        .byte DW_OP_lit(2)
     .4byte .LDW5_base_type_DIE  # DW_AT_type
+    .uleb128 1  # DW_AT_use_location as exprloc
+        .byte DW_OP_lit(1)
     .byte 0  # DW_AT_variable_parameter
     .byte DW_VIRTUALITY_pure_virtual  # DW_AT_virtuality
+    .uleb128 1  # DW_AT_vtable_elem_location as exprloc
+        .byte DW_OP_lit(0)
     .byte 1  # DW_AT_allocated
     .byte 1  # DW_AT_associated
     .uleb128 .Lall_attributes_DIE_data_location_end - .Lall_attributes_DIE_data_location  # DW_AT_data_location
@@ -591,15 +603,23 @@ _start:
     .byte 1  # DW_AT_call_all_source_calls
     .byte 1  # DW_AT_call_all_tail_calls
     .8byte _start  # DW_AT_call_return_pc
-    # DW_AT_call_value
-    # DW_AT_call_origin
+    .uleb128 2  # DW_AT_call_value
+        .byte DW_OP_lit(8)
+        .byte DW_OP_reg(9)
+    .uleb128 2  # DW_AT_call_origin
+        .byte DW_OP_lit(10)
+        .byte DW_OP_reg(11)
     .4byte .LDW5_base_type_DIE  # DW_AT_call_parameter
     .8byte _start  # DW_AT_call_pc
     .byte 1  # DW_AT_call_tail_call
-    # DW_AT_call_target
-    # DW_AT_call_target_clobbered
-    # DW_AT_call_data_location
-    # DW_AT_call_data_value
+    .uleb128 1  # DW_AT_call_target
+        .byte DW_OP_lit(12)
+    .uleb128 1  # DW_AT_call_target_clobbered
+        .byte DW_OP_reg(13)
+    .uleb128 1  # DW_AT_call_data_location
+        .byte DW_OP_breg(14)
+    .uleb128 1  # DW_AT_call_data_value
+        .byte DW_OP_lit(15)
     .byte 1  # DW_AT_noreturn
     .byte 8  # DW_AT_alignment
     .byte 1  # DW_AT_export_symbols
