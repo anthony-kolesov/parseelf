@@ -735,7 +735,7 @@ def _format_die_attribute_value(
     debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
     debug_addr: dwarf.AddressEntrySet,
-    debug_rnglists: dwarf.RangelListEntrySet,
+    debug_rnglists: dwarf.RangeListEntrySet,
 ) -> str:
     # A formatter for attributes that use an Enum that has a 'human_name' attribute.
     def human_name(typ: type, value: int, /, attr_name: str = 'human_name') -> str:
@@ -870,7 +870,6 @@ def _format_die_attribute_value(
     # different from what makes sense for this form, hence
     # attribute-specific formatters have higher priority over
     # form-specific.
-    # attr_value_int = cast(int, attr.value)
     if isinstance(value, bytes) and attribute in bytes_attr_formatting:
         return bytes_attr_formatting[attribute](value)
     elif attribute in attr_formatting:
@@ -886,7 +885,7 @@ def _print_die_attribute(
     debug_str_offsets: dwarf.StringOffsetsEntrySet,
     debug_line_strings: elf.StringTable,
     debug_addr: dwarf.AddressEntrySet,
-    debug_rnglists: dwarf.RangelListEntrySet,
+    debug_rnglists: dwarf.RangeListEntrySet,
 ) -> None:
     print(
         f'    <{attr.offset:x}>  ',
@@ -952,7 +951,7 @@ def print_dwarf_info(
         debug_rnglists_stream = BytesIO(elf_obj.section_content(debug_rnglists_section.number))
         debug_rnglists_sr = dwarf.StreamReader(elf_obj.data_format, debug_rnglists_stream)
         debug_rnglists_table = {
-            t.base_offset: t for t in dwarf.RangelListEntrySet.read(debug_rnglists_sr)
+            t.base_offset: t for t in dwarf.RangeListEntrySet.read(debug_rnglists_sr)
         }
     else:
         debug_rnglists_table = {}
@@ -985,7 +984,7 @@ def print_dwarf_info(
         )
         debug_rnglists = debug_rnglists_table.get(
             cu.range_lists_base_value(),
-            dwarf.RangelListEntrySet.empty(),
+            dwarf.RangeListEntrySet.empty(),
         )
         for die in cu.die_entries:
             abbrev_name = f' ({die.tag.name})' if not die.is_null_entry else ''
@@ -1285,11 +1284,10 @@ def print_dwarf_ranges(
     debug_addr_sr = dwarf.StreamReader(elf_obj.data_format, debug_addr_stream)
     debug_addr = {da_set.base_offset: da_set for da_set in dwarf.AddressEntrySet.read(debug_addr_sr)}
 
-    for entry_set in dwarf.RangelListEntrySet.read(sr):
+    for entry_set in dwarf.RangeListEntrySet.read(sr):
         debug_addr_entry_set: dwarf.AddressEntrySet | None = None
 
         def get_debug_addr() -> dwarf.AddressEntrySet | None:
-            # global debug_addr_entry_set
             if debug_addr_entry_set is not None:
                 return debug_addr_entry_set
 

@@ -2731,7 +2731,7 @@ class AddressEntrySet:
 
 
 #
-# .debug_rnglist
+# .debug_rnglists
 #
 class RangeListEntryKind(Enum):
     DW_RLE_end_of_list = 0x00
@@ -2784,7 +2784,7 @@ class RangeListEntry:
 
 
 @dataclasses.dataclass(frozen=True)
-class RangelListEntrySet:
+class RangeListEntrySet:
     offset: int
     """Offset of the header in the .debug_rnglists section."""
     length: int
@@ -2798,7 +2798,7 @@ class RangelListEntrySet:
     entries_base_offset: int
 
     @staticmethod
-    def read(sr: StreamReader) -> Iterable['RangelListEntrySet']:
+    def read(sr: StreamReader) -> Iterable['RangeListEntrySet']:
         while not sr.at_eof:
             offset = sr.current_position
             length = sr.length()
@@ -2818,7 +2818,7 @@ class RangelListEntrySet:
             for entry_offset in offsets:
                 sr.set_abs_position(entry_offset)
                 entries.append(list(RangeListEntry.read(sr, address_size)))
-            yield RangelListEntrySet(
+            yield RangeListEntrySet(
                 offset,
                 length,
                 version,
@@ -2832,6 +2832,5 @@ class RangelListEntrySet:
             sr.set_abs_position(end_position)
 
     @staticmethod
-    def empty() -> 'RangelListEntrySet':
-        """Return a string offset table that has no offsets."""
-        return RangelListEntrySet(0, 0, 8, 8, 0, tuple(), tuple(), 0, 0)
+    def empty() -> 'RangeListEntrySet':
+        return RangeListEntrySet(0, 0, 8, 8, 0, tuple(), tuple(), 0, 0)
